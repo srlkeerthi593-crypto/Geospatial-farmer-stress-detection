@@ -98,13 +98,14 @@
 >
 > **5.** **Preliminary** **Task** **Distribution**
 
-||
-||
-||
-||
-||
-||
-||
+## Team Member Responsibilities
+
+| Member | Primary Responsibility | Secondary Responsibility |
+|------|----------------------|-------------------------|
+| **Member 1** | Farmer Stress Index Modelling using Python & Spatial Analysis (GIS Hotspot Detection) | Documentation & Report Writing |
+| **Member 2** | GUI Development using Streamlit & Interactive Map Creation | Data Cleaning and Pre-processing using Python (Folium GIS) |
+| **Member 3** | Data Collection and QGIS Spatial Data Processing | Dataset Integration, Map Visualization Testing & Output Verification |
+| **Member 4** | System Integration, Python Workflow Execution & GitHub Repository Management | Presentation Preparation & Result Demonstration |
 
 > **Expected** **Outcomes**
 >
