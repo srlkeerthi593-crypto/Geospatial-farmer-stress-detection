@@ -1,42 +1,29 @@
 # ================================
-# 🚀 AGRISTRESS AVENGERS — FINAL
+# ⚡ AGRISTRESS AVENGERS FINAL
 # ================================
 
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-import json
+import time
 import os
-
-# Try ML (safe fallback)
-try:
-    from sklearn.ensemble import RandomForestRegressor
-    ML_AVAILABLE = True
-except:
-    ML_AVAILABLE = False
 
 st.set_page_config(page_title="AgriStress Avengers", layout="wide")
 
 # ================================
-# 🎮 NASA STYLE UI
+# 🎮 NEON GAME UI
 # ================================
 st.markdown("""
 <style>
-html, body {
+html, body, [data-testid="stAppViewContainer"] {
     background: radial-gradient(circle at top, #021a02, #000000);
-}
-h1 {
     color:#00ff88;
-    text-align:center;
-    font-family:Orbitron;
-    text-shadow:0 0 25px #00ff88;
 }
-.stMetric {
-    background:#021a02;
-    border:1px solid #00ff44;
-    border-radius:10px;
-    padding:10px;
+h1,h2,h3 {
+    color:#00ff88;
+    font-family:Orbitron;
+    text-shadow:0 0 15px #00ff88;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -51,62 +38,49 @@ def load_data():
 
 df = load_data()
 
-uploaded = st.file_uploader("📂 Upload Dataset (Excel/CSV)", type=["xlsx","csv"])
+uploaded = st.file_uploader("📂 Upload Dataset", type=["xlsx","csv"])
 
 if uploaded:
     df = pd.read_excel(uploaded)
 
 if df is None:
-    st.error("❌ Dataset not found. Upload file or add to repo.")
+    st.error("Dataset not found")
     st.stop()
 
 # ================================
-# LOAD GEOJSON
+# DISTRICT COORDS (KARNATAKA)
 # ================================
-@st.cache_data
-def load_geo():
-    with open("KARNATAKA_DISTRICTS.geojson") as f:
-        return json.load(f)
-
-geojson = load_geo()
+DISTRICT_INFO = {
+    'BAGALKOT': (16.1691,75.6965),'BALLARI': (15.1394,76.9214),
+    'BELAGAVI': (15.8497,74.4977),'BENGALURU URBAN': (12.9716,77.5946),
+    'BIDAR': (17.9104,77.5199),'CHIKKAMAGALURU': (13.3161,75.7720),
+    'DAVANAGERE': (14.4644,75.9218),'DHARWAD': (15.4589,75.0078),
+    'HASSAN': (13.0072,76.1004),'KOLAR': (13.1360,78.1294),
+    'MANDYA': (12.5218,76.8951),'MYSURU': (12.2958,76.6394),
+    'RAICHUR': (16.2120,77.3439),'SHIVAMOGGA': (13.9299,75.5681),
+    'TUMAKURU': (13.3379,77.1173),'UDUPI': (13.3409,74.7421),
+    'VIJAYAPURA': (16.8302,75.7100),'YADGIR': (16.7712,77.1382),
+}
 
 # ================================
-# YEAR SIMULATION
+# YEAR SLIDER
 # ================================
 if "Year" not in df.columns:
     df["Year"] = np.random.choice([2020,2021,2022,2023,2024], len(df))
 
-year = st.slider("🕒 Select Year", 2020, 2024, 2024)
+year = st.slider("🕒 Year", 2020, 2024, 2024)
 df = df[df["Year"] == year]
 
 # ================================
-# FSI CALCULATION
+# FSI
 # ================================
 df["FSI"] = (
     (1-df["Rainfall"])*0.25 +
     (1-df["Price"])*0.25 +
     (1-df["Yield"])*0.2 +
-    (df["Cost"])*0.2 +
+    df["Cost"]*0.2 +
     (1-df["Irrigation"])*0.1
 )
-
-# ================================
-# NDVI (PROXY)
-# ================================
-df["NDVI"] = (df["Yield"] + df["Irrigation"]) / 2
-
-# ================================
-# AI MODEL (SAFE)
-# ================================
-if ML_AVAILABLE:
-    try:
-        model = RandomForestRegressor()
-        model.fit(df[["Rainfall","Price","Yield","Cost","Irrigation"]], df["FSI"])
-        df["Predicted_FSI"] = model.predict(df[["Rainfall","Price","Yield","Cost","Irrigation"]])
-    except:
-        df["Predicted_FSI"] = df["FSI"]
-else:
-    df["Predicted_FSI"] = df["FSI"]
 
 # ================================
 # DISTRICT SUMMARY
@@ -114,34 +88,17 @@ else:
 dist = df.groupby("Region").mean(numeric_only=True).reset_index()
 dist["Region"] = dist["Region"].str.upper().str.strip()
 
-# FIX GEOJSON NAMES
-for f in geojson["features"]:
-    name = f["properties"].get("district") or f["properties"].get("name")
-    f["properties"]["district_fixed"] = str(name).upper().strip()
+# ADD COORDS
+dist["lat"] = dist["Region"].map(lambda x: DISTRICT_INFO.get(x,(None,None))[0])
+dist["lon"] = dist["Region"].map(lambda x: DISTRICT_INFO.get(x,(None,None))[1])
+
+dist = dist.dropna()
 
 # ================================
-# CLASSIFICATION
+# HOTSPOTS
 # ================================
-p33 = dist["FSI"].quantile(0.33)
 p66 = dist["FSI"].quantile(0.66)
-
-dist["Stress"] = dist["FSI"].apply(
-    lambda x: "High" if x>=p66 else ("Medium" if x>=p33 else "Low")
-)
-
-# ================================
-# REASONS
-# ================================
-def get_reason(r):
-    reasons=[]
-    if r["Rainfall"]<0.4: reasons.append("Low Rainfall")
-    if r["Yield"]<0.4: reasons.append("Low Yield")
-    if r["Price"]<0.4: reasons.append("Low Price")
-    if r["Cost"]>0.6: reasons.append("High Cost")
-    if r["Irrigation"]<0.4: reasons.append("Poor Irrigation")
-    return ", ".join(reasons) if reasons else "Balanced"
-
-dist["Reason"] = dist.apply(get_reason, axis=1)
+dist["Hotspot"] = dist["FSI"] >= p66
 
 # ================================
 # HEADER
@@ -149,63 +106,92 @@ dist["Reason"] = dist.apply(get_reason, axis=1)
 st.markdown("<h1>⚡ AGRISTRESS AVENGERS ⚡</h1>", unsafe_allow_html=True)
 
 # KPIs
-c1,c2,c3 = st.columns(3)
-c1.metric("Avg FSI", round(dist["FSI"].mean(),3))
-c2.metric("Hotspots", (dist["Stress"]=="High").sum())
-c3.metric("Districts", len(dist))
+c1,c2 = st.columns(2)
+c1.metric("AVG FSI", round(dist["FSI"].mean(),3))
+c2.metric("HOTSPOTS", dist["Hotspot"].sum())
 
 # ================================
-# 🗺️ HEATMAP
+# 🔥 HEX GRID STYLE MAP
 # ================================
-st.subheader("🗺️ Karnataka Stress Heatmap")
+st.subheader("🗺️ MISSION MAP")
 
-fig = go.Figure(go.Choroplethmapbox(
-    geojson=geojson,
-    locations=dist["Region"],
-    featureidkey="properties.district_fixed",
-    z=dist["FSI"],
-    colorscale=[[0,"#00ff88"],[0.5,"#ffcc00"],[1,"#ff2222"]],
-    marker_line_width=0.5,
-    customdata=dist[["Stress","Reason"]],
-    hovertemplate="<b>%{location}</b><br>FSI:%{z:.3f}<br>%{customdata[0]}<br>%{customdata[1]}"
+# Create grid points (HEX-like)
+grid_lat, grid_lon, grid_val = [], [], []
+
+for _, row in dist.iterrows():
+    for i in range(15):  # density
+        grid_lat.append(row["lat"] + np.random.uniform(-0.08,0.08))
+        grid_lon.append(row["lon"] + np.random.uniform(-0.08,0.08))
+        grid_val.append(row["FSI"])
+
+# MAIN HEAT LAYER
+fig = go.Figure()
+
+fig.add_trace(go.Densitymapbox(
+    lat=grid_lat,
+    lon=grid_lon,
+    z=grid_val,
+    radius=18,
+    colorscale=[
+        [0, "#00ff88"],
+        [0.4, "#ccff00"],
+        [0.6, "#ffcc00"],
+        [0.8, "#ff6600"],
+        [1, "#ff0000"]
+    ],
+    opacity=0.9,
 ))
 
+# ================================
+# 🔴 BLINKING HOTSPOTS
+# ================================
+fig.add_trace(go.Scattermapbox(
+    lat=dist[dist["Hotspot"]]["lat"],
+    lon=dist[dist["Hotspot"]]["lon"],
+    mode="markers",
+    marker=dict(
+        size=20,
+        color="red",
+        opacity=0.9
+    ),
+    name="Hotspots"
+))
+
+# ================================
+# 🟢 SCAN EFFECT (RADAR LINE)
+# ================================
+angle = time.time() % 6
+
+scan_lat = [14.5, 14.5 + np.cos(angle)*2]
+scan_lon = [76, 76 + np.sin(angle)*2]
+
+fig.add_trace(go.Scattermapbox(
+    lat=scan_lat,
+    lon=scan_lon,
+    mode="lines",
+    line=dict(color="#00ff88", width=3),
+    name="Scan"
+))
+
+# ================================
+# MAP SETTINGS
+# ================================
 fig.update_layout(
-    mapbox_style="carto-darkmatter",
-    mapbox_center={"lat":14.5,"lon":76},
-    mapbox_zoom=5.8,
-    height=550
+    mapbox=dict(
+        style="carto-darkmatter",
+        center=dict(lat=14.5, lon=76),
+        zoom=6
+    ),
+    height=550,
+    margin=dict(l=0,r=0,t=0,b=0)
 )
 
 st.plotly_chart(fig, use_container_width=True)
 
 # ================================
-# HOTSPOTS
+# HOTSPOT LIST
 # ================================
-st.subheader("🔥 High Stress Districts")
+st.subheader("🔥 HIGH STRESS DISTRICTS")
 
-hot = dist[dist["Stress"]=="High"].sort_values("FSI", ascending=False)
-
-for _,r in hot.iterrows():
-    st.error(f"{r['Region']} | FSI={r['FSI']:.3f} | {r['Reason']}")
-
-# ================================
-# AI VISUAL
-# ================================
-st.subheader("🤖 AI Predicted Stress")
-
-st.bar_chart(dist.set_index("Region")["Predicted_FSI"])
-
-# ================================
-# NDVI VISUAL
-# ================================
-st.subheader("📡 NDVI (Vegetation Health Proxy)")
-
-st.bar_chart(dist.set_index("Region")["NDVI"])
-
-# ================================
-# DATA TABLE
-# ================================
-st.subheader("📊 Full Data")
-
-st.dataframe(dist)
+for _, r in dist[dist["Hotspot"]].iterrows():
+    st.error(f"{r['Region']} | FSI={r['FSI']:.3f}")
