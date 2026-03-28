@@ -1,120 +1,128 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import time
 import json
 import plotly.express as px
 
 # ─── PAGE CONFIG ─────────────────────────────
 st.set_page_config(page_title="AgriStress Avengers", layout="wide")
 
-# ─── SESSION STATE ─────────────────────────────
-if "analysis_done" not in st.session_state:
-    st.session_state.analysis_done = False
-if "fsi_data" not in st.session_state:
-    st.session_state.fsi_data = None
-
-# ─── HEADER ─────────────────────────────
-st.title("⚡ AGRISTRESS AVENGERS ⚡")
-st.caption("Farmer Stress Intelligence System")
+st.title("🌾 AgriStress Avengers - Farmer Stress Intelligence System")
 
 # ─── SIDEBAR ─────────────────────────────
-st.sidebar.header("⚙ Mission Config")
+st.sidebar.header("📂 Upload Files")
 
 uploaded_csv = st.sidebar.file_uploader("Upload Dataset (CSV/XLSX)", type=["csv", "xlsx"])
-uploaded_geojson = st.sidebar.file_uploader("Upload GeoJSON", type=["geojson"])
+uploaded_geojson = st.sidebar.file_uploader("Upload GeoJSON (District Boundaries)", type=["geojson"])
 
 hotspot_threshold = st.sidebar.slider("Hotspot Threshold", 0.0, 1.0, 0.7)
 
-# ─── MAIN LAYOUT ─────────────────────────────
-col1, col2 = st.columns([3, 2])
+# ─── MAIN ─────────────────────────────
+if uploaded_csv and uploaded_geojson:
 
-# ─── MAP AREA ─────────────────────────────
-with col1:
-    st.subheader("🗺 Geospatial Map")
-
-    if not st.session_state.analysis_done:
-        st.info("Upload data and click 'Launch FSI Scan'")
-    else:
-        if uploaded_geojson is not None:
-            geojson = json.load(uploaded_geojson)
-            df = st.session_state.fsi_data
-
-            fig = px.choropleth(
-                df,
-                geojson=geojson,
-                locations="District",
-                featureidkey="properties.District",
-                color="FSI_Score",
-                color_continuous_scale="RdYlGn_r",
-            )
-
-            fig.update_geos(fitbounds="locations", visible=False)
-
-            st.plotly_chart(fig, use_container_width=True)
+    try:
+        # ---- Load dataset ----
+        if uploaded_csv.name.endswith(".xlsx"):
+            df = pd.read_excel(uploaded_csv)
         else:
-            st.warning("Upload GeoJSON to display map")
+            df = pd.read_csv(uploaded_csv)
 
-# ─── CONTROL PANEL ─────────────────────────────
-with col2:
-    st.subheader("⚙ Controls")
+        st.success("✅ Dataset Loaded")
 
-    if st.button("🚀 LAUNCH FSI SCAN"):
+    except Exception as e:
+        st.error(f"❌ Dataset Error: {e}")
+        st.stop()
 
-        if uploaded_csv is None:
-            st.warning("Upload dataset first")
-        else:
-            try:
-                # ---- Load dataset ----
-                if uploaded_csv.name.endswith(".xlsx"):
-                    df = pd.read_excel(uploaded_csv)
-                else:
-                    df = pd.read_csv(uploaded_csv)
+    try:
+        # ---- Load GeoJSON ----
+        geojson = json.load(uploaded_geojson)
+        st.success("✅ GeoJSON Loaded")
 
-                # ---- Clean ----
-                df["District"] = df["District"].astype(str).str.upper().str.strip()
+    except Exception as e:
+        st.error(f"❌ GeoJSON Error: {e}")
+        st.stop()
 
-                # ---- Check column ----
-                if "FSI_Score" not in df.columns:
-                    st.error("Dataset must contain 'FSI_Score'")
-                    st.stop()
+    # ─── SHOW COLUMNS ─────────────────────────
+    st.subheader("🔗 Match Columns")
 
-                # ---- Stress classification ----
-                df["Stress_Level"] = [
-                    "LOW" if v < 0.4 else "MEDIUM" if v < 0.7 else "HIGH"
-                    for v in df["FSI_Score"]
-                ]
+    col1, col2 = st.columns(2)
 
-                df["Hotspot"] = df["FSI_Score"] > hotspot_threshold
+    district_col = col1.selectbox("Select District Column", df.columns)
 
-                # ---- Save ----
-                st.session_state.fsi_data = df
-                st.session_state.analysis_done = True
+    numeric_cols = df.select_dtypes(include=np.number).columns
+    if len(numeric_cols) == 0:
+        st.error("❌ No numeric columns found")
+        st.stop()
 
-                st.success("✅ Analysis Complete")
+    fsi_col = col2.selectbox("Select FSI / Stress Column", numeric_cols)
 
-                st.rerun()
+    # ─── CLEAN DATA ─────────────────────────
+    df[district_col] = df[district_col].astype(str).str.upper().str.strip()
 
-            except Exception as e:
-                st.error(f"Error: {e}")
+    # Rename for consistency
+    df = df.rename(columns={
+        district_col: "District",
+        fsi_col: "FSI_Score"
+    })
 
-    # ─── RESULTS ─────────────────────────────
-    if st.session_state.analysis_done:
-        df = st.session_state.fsi_data
+    # ─── OPTIONAL FILTERS ─────────────────────────
+    if "State" in df.columns:
+        state = st.selectbox("Select State", df["State"].unique())
+        df = df[df["State"] == state]
 
-        st.subheader("📊 Summary")
+    if "Year" in df.columns:
+        year = st.selectbox("Select Year", sorted(df["Year"].unique(), reverse=True))
+        df = df[df["Year"] == year]
 
-        colA, colB, colC = st.columns(3)
-        colA.metric("Average", round(df["FSI_Score"].mean(), 2))
-        colB.metric("Max", round(df["FSI_Score"].max(), 2))
-        colC.metric("Min", round(df["FSI_Score"].min(), 2))
+    # ─── STRESS CLASSIFICATION ─────────────────────────
+    df["Stress_Level"] = pd.cut(
+        df["FSI_Score"],
+        bins=[-np.inf, 0.4, 0.7, np.inf],
+        labels=["LOW", "MEDIUM", "HIGH"]
+    )
 
-        st.subheader("📋 Data")
-        st.dataframe(df[["District", "FSI_Score", "Stress_Level"]])
+    df["Hotspot"] = df["FSI_Score"] > hotspot_threshold
 
-        st.download_button(
-            "⬇ Download CSV",
-            df.to_csv(index=False),
-            "FSI_Result.csv",
-            "text/csv"
+    # ─── MAP ─────────────────────────
+    st.subheader("🗺 District Stress Map")
+
+    try:
+        fig = px.choropleth(
+            df,
+            geojson=geojson,
+            locations="District",
+            featureidkey="properties.District",
+            color="FSI_Score",
+            color_continuous_scale="RdYlGn_r",
+            hover_name="District"
         )
+
+        fig.update_geos(fitbounds="locations", visible=False)
+
+        st.plotly_chart(fig, use_container_width=True)
+
+    except Exception as e:
+        st.error(f"❌ Map Error: {e}")
+
+    # ─── SUMMARY ─────────────────────────
+    st.subheader("📊 Summary")
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Average Stress", round(df["FSI_Score"].mean(), 2))
+    col2.metric("Max Stress", round(df["FSI_Score"].max(), 2))
+    col3.metric("Min Stress", round(df["FSI_Score"].min(), 2))
+
+    # ─── TABLE ─────────────────────────
+    st.subheader("📋 Data Preview")
+    st.dataframe(df[["District", "FSI_Score", "Stress_Level"]].head(50))
+
+    # ─── DOWNLOAD ─────────────────────────
+    st.download_button(
+        "⬇ Download Results",
+        df.to_csv(index=False),
+        "FSI_Result.csv",
+        "text/csv"
+    )
+
+else:
+    st.info("📂 Upload BOTH dataset and GeoJSON file to start")
