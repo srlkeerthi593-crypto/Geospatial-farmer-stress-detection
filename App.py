@@ -5,43 +5,31 @@ import plotly.express as px
 
 st.set_page_config(page_title="AgriStress Avengers", layout="wide")
 
-st.title("⚡ AgriStress Avengers - Ultra Fast Dashboard")
+st.title("🌾 AgriStress Avengers - FSI Dashboard")
 
-# ─── CACHE EVERYTHING ─────────────────────────────
-
+# ─── CACHE ─────────────────────────────
 @st.cache_data
-def load_dataset(file):
+def load_data(file):
     if file.name.endswith(".xlsx"):
         return pd.read_excel(file)
     return pd.read_csv(file)
 
 @st.cache_data
-def load_geojson(file):
+def load_geo(file):
     return json.load(file)
 
-@st.cache_data
-def prepare_geo_keys(geojson, geo_col):
-    keys = []
-    for f in geojson["features"]:
-        val = str(f["properties"][geo_col]).upper().strip()
-        keys.append(val)
-    return keys
-
 # ─── SIDEBAR ─────────────────────────────
-
 st.sidebar.header("📂 Upload Files")
 
 data_file = st.sidebar.file_uploader("Dataset", type=["csv", "xlsx"])
 geo_file = st.sidebar.file_uploader("GeoJSON", type=["geojson"])
 
 # ─── MAIN ─────────────────────────────
-
 if data_file and geo_file:
 
-    df = load_dataset(data_file)
-    geojson = load_geojson(geo_file)
+    df = load_data(data_file)
+    geojson = load_geo(geo_file)
 
-    # ─── COLUMN MATCHING ─────────────────────
     st.subheader("🔗 Column Matching")
 
     col1, col2 = st.columns(2)
@@ -50,23 +38,27 @@ if data_file and geo_file:
     geo_cols = geojson["features"][0]["properties"].keys()
     geo_col = col2.selectbox("GeoJSON District Column", geo_cols)
 
-    # ─── CLEAN DATA ─────────────────────────
+    # Clean data
     df[data_col] = df[data_col].astype(str).str.upper().str.strip()
 
-    # ─── CREATE FAST LOOKUP ─────────────────
-    geo_keys = prepare_geo_keys(geojson, geo_col)
+    # Get GeoJSON district names
+    geo_names = [
+        str(f["properties"][geo_col]).upper().strip()
+        for f in geojson["features"]
+    ]
 
-    df = df[df[data_col].isin(geo_keys)]
+    # Filter dataset
+    df = df[df[data_col].isin(geo_names)]
 
     if df.empty:
-        st.error("❌ No matching districts")
+        st.error("❌ District names not matching")
         st.stop()
 
-    # ─── SELECT NUMERIC COLUMN ──────────────
+    # Select numeric column
     num_cols = df.select_dtypes(include="number").columns
     fsi_col = st.selectbox("Select Stress Column", num_cols)
 
-    # ─── ULTRA FAST MAP ─────────────────────
+    # Map
     st.subheader("🗺 District Stress Map")
 
     fig = px.choropleth(
@@ -82,16 +74,14 @@ if data_file and geo_file:
 
     st.plotly_chart(fig, use_container_width=True)
 
-    # ─── KPIs ───────────────────────────────
+    # Metrics
     col1, col2, col3 = st.columns(3)
+    col1.metric("Avg", round(df[fsi_col].mean(), 2))
+    col2.metric("Max", round(df[fsi_col].max(), 2))
+    col3.metric("Min", round(df[fsi_col].min(), 2))
 
-    col1.metric("Avg Stress", round(df[fsi_col].mean(), 2))
-    col2.metric("Max Stress", round(df[fsi_col].max(), 2))
-    col3.metric("Min Stress", round(df[fsi_col].min(), 2))
-
-    # ─── TABLE (LIMITED) ────────────────────
-    st.subheader("📊 Preview")
-    st.dataframe(df[[data_col, fsi_col]].head(30))
+    # Table
+    st.dataframe(df[[data_col, fsi_col]].head(50))
 
 else:
-    st.info("📂 Upload dataset + geojson to start")
+    st.info("📂 Upload dataset + GeoJSON")
