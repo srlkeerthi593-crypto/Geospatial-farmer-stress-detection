@@ -1,151 +1,105 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
-import geopandas as gpd
-import zipfile
-import tempfile
-import os
+import json
 import plotly.express as px
 
-# ─── Page Config ─────────────────────────────────────────────
 st.set_page_config(page_title="AgriStress Avengers", layout="wide")
 
-st.title("🌾 AgriStress Avengers - Farmer Stress Intelligence System")
+st.title("🌾 AgriStress Avengers - FSI Dashboard")
 
-# ─── Sidebar ─────────────────────────────────────────────
-st.sidebar.header("📂 Upload Data")
+# ─── Upload Section ─────────────────────────────
+st.sidebar.header("📂 Upload Files")
 
-uploaded_csv = st.sidebar.file_uploader(
-    "Upload Dataset (CSV/XLSX)", type=["csv", "xlsx"]
-)
+uploaded_csv = st.sidebar.file_uploader("Upload Dataset (CSV/XLSX)", type=["csv", "xlsx"])
+uploaded_geojson = st.sidebar.file_uploader("Upload GeoJSON (District Boundaries)", type=["geojson"])
 
-uploaded_shp = st.sidebar.file_uploader(
-    "Upload Shapefile ZIP", type=["zip"]
-)
+# ─── Main Logic ─────────────────────────────
+if uploaded_csv and uploaded_geojson:
 
-# ─── Main App ─────────────────────────────────────────────
-if uploaded_csv and uploaded_shp:
-
-    # ---------------- READ DATASET ----------------
+    # ---- Read Dataset ----
     try:
         if uploaded_csv.name.endswith(".xlsx"):
             df = pd.read_excel(uploaded_csv)
         else:
             df = pd.read_csv(uploaded_csv)
 
-        st.success("✅ Dataset Loaded Successfully")
+        st.success("✅ Dataset Loaded")
 
     except Exception as e:
-        st.error(f"❌ Error reading dataset: {e}")
+        st.error(f"❌ Dataset Error: {e}")
         st.stop()
 
-    # ---------------- READ SHAPEFILE ----------------
+    # ---- Read GeoJSON ----
     try:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            with zipfile.ZipFile(uploaded_shp, 'r') as zip_ref:
-                zip_ref.extractall(tmpdir)
-
-            shp_file = None
-            for root, dirs, files in os.walk(tmpdir):
-                for file in files:
-                    if file.endswith(".shp"):
-                        shp_file = os.path.join(root, file)
-
-            if shp_file is None:
-                st.error("❌ No .shp file found in ZIP")
-                st.stop()
-
-            gdf = gpd.read_file(shp_file)
-
-        st.success("✅ Shapefile Loaded Successfully")
+        geojson = json.load(uploaded_geojson)
+        st.success("✅ GeoJSON Loaded")
 
     except Exception as e:
-        st.error(f"❌ Error reading shapefile: {e}")
+        st.error(f"❌ GeoJSON Error: {e}")
         st.stop()
 
-    # ---------------- SHOW COLUMNS ----------------
-    st.subheader("🔍 Column Matching")
+    # ---- Show columns ----
+    st.subheader("🔗 Column Matching")
 
     col1, col2 = st.columns(2)
 
-    with col1:
-        data_col = st.selectbox("Select District column (Dataset)", df.columns)
+    data_col = col1.selectbox("Dataset District Column", df.columns)
 
-    with col2:
-        shp_col = st.selectbox("Select District column (Shapefile)", gdf.columns)
+    # Try auto-detect geojson property keys
+    geo_props = geojson["features"][0]["properties"].keys()
+    geo_col = col2.selectbox("GeoJSON District Column", geo_props)
 
-    # ---------------- CLEAN DATA ----------------
+    # ---- Clean Data ----
     df[data_col] = df[data_col].astype(str).str.upper().str.strip()
-    gdf[shp_col] = gdf[shp_col].astype(str).str.upper().str.strip()
 
-    # ---------------- MERGE ----------------
-    try:
-        merged = gdf.merge(df, left_on=shp_col, right_on=data_col)
+    # ---- Create mapping ----
+    geo_df = pd.json_normalize(geojson["features"])
 
-        if merged.empty:
-            st.error("❌ Merge failed: No matching district names")
-            st.stop()
+    geo_df[geo_col] = geo_df[f"properties.{geo_col}"].astype(str).str.upper().str.strip()
 
-        st.success("✅ Data Merged Successfully")
+    # ---- Merge ----
+    merged = geo_df.merge(df, left_on=geo_col, right_on=data_col)
 
-    except Exception as e:
-        st.error(f"❌ Merge Error: {e}")
+    if merged.empty:
+        st.error("❌ No matching districts found. Check names.")
         st.stop()
 
-    # ---------------- SELECT FSI COLUMN ----------------
-    st.subheader("📊 Select Stress Indicator")
+    st.success("✅ Data Merged Successfully")
 
-    numeric_cols = merged.select_dtypes(include=np.number).columns
+    # ---- Select FSI Column ----
+    numeric_cols = df.select_dtypes(include="number").columns
 
-    if len(numeric_cols) == 0:
-        st.error("❌ No numeric columns found for analysis")
-        st.stop()
+    fsi_col = st.selectbox("Select Stress Column", numeric_cols)
 
-    fsi_col = st.selectbox("Select FSI / Stress Column", numeric_cols)
-
-    # ---------------- CREATE STRESS LEVEL ----------------
-    merged["Stress_Level"] = pd.cut(
-        merged[fsi_col],
-        bins=[-np.inf, 0.4, 0.7, np.inf],
-        labels=["LOW", "MEDIUM", "HIGH"]
-    )
-
-    # ---------------- MAP ----------------
+    # ---- Map ----
     st.subheader("🗺 District Stress Map")
 
-    try:
-        merged = merged.to_crs(epsg=4326)
+    fig = px.choropleth(
+        merged,
+        geojson=geojson,
+        locations=merged.index,
+        featureidkey=f"properties.{geo_col}",
+        color=fsi_col,
+        hover_name=data_col,
+        color_continuous_scale="RdYlGn_r"
+    )
 
-        fig = px.choropleth(
-            merged,
-            geojson=merged.geometry,
-            locations=merged.index,
-            color=fsi_col,
-            hover_name=data_col,
-            color_continuous_scale="RdYlGn_r"
-        )
+    fig.update_geos(fitbounds="locations", visible=False)
 
-        fig.update_geos(fitbounds="locations", visible=False)
+    st.plotly_chart(fig, use_container_width=True)
 
-        st.plotly_chart(fig, use_container_width=True)
-
-    except Exception as e:
-        st.error(f"❌ Map Error: {e}")
-
-    # ---------------- STATS ----------------
-    st.subheader("📈 Summary")
+    # ---- Stats ----
+    st.subheader("📊 Summary")
 
     col1, col2, col3 = st.columns(3)
+    col1.metric("Average", round(merged[fsi_col].mean(), 2))
+    col2.metric("Max", round(merged[fsi_col].max(), 2))
+    col3.metric("Min", round(merged[fsi_col].min(), 2))
 
-    col1.metric("Average Stress", round(merged[fsi_col].mean(), 2))
-    col2.metric("Max Stress", round(merged[fsi_col].max(), 2))
-    col3.metric("Min Stress", round(merged[fsi_col].min(), 2))
+    # ---- Table ----
+    st.dataframe(merged[[data_col, fsi_col]])
 
-    # ---------------- TABLE ----------------
-    st.subheader("📋 Data Table")
-    st.dataframe(merged[[data_col, fsi_col, "Stress_Level"]])
-
-    # ---------------- DOWNLOAD ----------------
+    # ---- Download ----
     st.download_button(
         "⬇ Download Results",
         merged.to_csv(index=False),
@@ -154,4 +108,4 @@ if uploaded_csv and uploaded_shp:
     )
 
 else:
-    st.info("📂 Upload both dataset and shapefile to begin")
+    st.info("📂 Upload both dataset and GeoJSON file")
