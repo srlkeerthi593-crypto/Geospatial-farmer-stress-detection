@@ -1,5 +1,5 @@
 # =========================================
-# 🎮 AGRISTRESS AVENGERS — ELITE VERSION
+# 🎮 AGRISTRESS AVENGERS — GOD MODE
 # =========================================
 
 import streamlit as st
@@ -8,11 +8,12 @@ import numpy as np
 import plotly.graph_objects as go
 import json
 import os
+import h3
 
 st.set_page_config(page_title="AgriStress Avengers", layout="wide")
 
 # ================================
-# 🎮 NEON UI
+# 🎮 ADVANCED GAME UI
 # ================================
 st.markdown("""
 <style>
@@ -23,6 +24,13 @@ html, body, [data-testid="stAppViewContainer"] {
 h1 {
     text-align:center;
     text-shadow:0 0 25px #00ff88;
+    font-family:Orbitron;
+}
+.control-box {
+    border:1px solid #00ff44;
+    padding:10px;
+    border-radius:8px;
+    background:#021a02;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -47,18 +55,19 @@ if df is None:
     st.stop()
 
 # ================================
-# LOAD GEOJSON
+# YEAR CONTROL PANEL
 # ================================
-with open("KARNATAKA_DISTRICTS.geojson") as f:
-    geojson = json.load(f)
+col1, col2 = st.columns([3,1])
 
-# ================================
-# YEAR
-# ================================
-if "Year" not in df.columns:
-    df["Year"] = np.random.choice([2020,2021,2022,2023,2024], len(df))
+with col1:
+    if "Year" not in df.columns:
+        df["Year"] = np.random.choice([2020,2021,2022,2023,2024], len(df))
 
-year = st.slider("🕒 Year", 2020, 2024, 2024)
+    year = st.slider("🕒 YEAR SELECTOR", 2020, 2024, 2024)
+
+with col2:
+    st.markdown('<div class="control-box">🚀 CONTROL PANEL<br>▶ Scan Active</div>', unsafe_allow_html=True)
+
 df = df[df["Year"] == year]
 
 # ================================
@@ -73,23 +82,46 @@ df["FSI"] = (
 )
 
 # ================================
-# DISTRICT SUMMARY
+# ADD APPROX COORDS (FAST)
 # ================================
-dist = df.groupby("Region").mean(numeric_only=True).reset_index()
-dist["Region"] = dist["Region"].str.upper().str.strip()
+np.random.seed(42)
+df["lat"] = np.random.uniform(11.5, 18, len(df))
+df["lon"] = np.random.uniform(74, 78.5, len(df))
 
 # ================================
-# MATCH GEOJSON
+# 🔷 H3 HEX GRID
 # ================================
-for f in geojson["features"]:
-    name = f["properties"].get("district") or f["properties"].get("name")
-    f["properties"]["district_fixed"] = str(name).upper().strip()
+hex_bins = {}
+
+for _, row in df.iterrows():
+    h = h3.geo_to_h3(row["lat"], row["lon"], 5)
+    if h not in hex_bins:
+        hex_bins[h] = []
+    hex_bins[h].append(row["FSI"])
+
+hex_ids = []
+hex_vals = []
+hex_lats = []
+hex_lons = []
+
+for h, vals in hex_bins.items():
+    lat, lon = h3.h3_to_geo(h)
+    hex_ids.append(h)
+    hex_vals.append(np.mean(vals))
+    hex_lats.append(lat)
+    hex_lons.append(lon)
+
+hex_df = pd.DataFrame({
+    "lat": hex_lats,
+    "lon": hex_lons,
+    "FSI": hex_vals
+})
 
 # ================================
 # HOTSPOTS
 # ================================
-p66 = dist["FSI"].quantile(0.66)
-dist["Hotspot"] = dist["FSI"] >= p66
+p66 = hex_df["FSI"].quantile(0.66)
+hex_df["Hotspot"] = hex_df["FSI"] >= p66
 
 # ================================
 # HEADER
@@ -97,52 +129,58 @@ dist["Hotspot"] = dist["FSI"] >= p66
 st.markdown("<h1>⚡ AGRISTRESS AVENGERS ⚡</h1>", unsafe_allow_html=True)
 
 c1,c2 = st.columns(2)
-c1.metric("AVG FSI", round(dist["FSI"].mean(),3))
-c2.metric("HOTSPOTS", dist["Hotspot"].sum())
+c1.metric("AVG FSI", round(hex_df["FSI"].mean(),3))
+c2.metric("HOTSPOTS", hex_df["Hotspot"].sum())
 
 # ================================
-# 🗺️ MAIN GAME MAP
+# 🗺️ HEX MAP (GAME STYLE)
 # ================================
 st.subheader("🗺️ MISSION MAP")
 
 fig = go.Figure()
 
-# HEATMAP INSIDE KARNATAKA
-fig.add_trace(go.Choroplethmapbox(
-    geojson=geojson,
-    locations=dist["Region"],
-    featureidkey="properties.district_fixed",
-    z=dist["FSI"],
-    colorscale=[
-        [0,"#00ff88"],
-        [0.5,"#ffcc00"],
-        [1,"#ff0000"]
-    ],
-    marker_line_color="#00ff88",
-    marker_line_width=1,
-    colorbar_title="FSI"
+# HEX LAYER
+fig.add_trace(go.Scattermapbox(
+    lat=hex_df["lat"],
+    lon=hex_df["lon"],
+    mode="markers",
+    marker=dict(
+        size=14,
+        color=hex_df["FSI"],
+        colorscale="RdYlGn_r",
+        opacity=0.85
+    )
 ))
 
-# HOTSPOT GLOW (MULTI LAYER)
-hot = dist[dist["Hotspot"]]
+# ================================
+# 🔴 HOTSPOT GLOW
+# ================================
+hot = hex_df[hex_df["Hotspot"]]
 
 fig.add_trace(go.Scattermapbox(
-    lat=[np.random.uniform(12,17) for _ in range(len(hot))],
-    lon=[np.random.uniform(74,78) for _ in range(len(hot))],
+    lat=hot["lat"],
+    lon=hot["lon"],
     mode="markers",
-    marker=dict(size=25, color="red", opacity=0.4),
-    name="Glow"
+    marker=dict(
+        size=22,
+        color="red",
+        opacity=0.6
+    )
 ))
 
+# ================================
+# 🟢 RADAR SWEEP (STATIC STYLE)
+# ================================
 fig.add_trace(go.Scattermapbox(
-    lat=[np.random.uniform(12,17) for _ in range(len(hot))],
-    lon=[np.random.uniform(74,78) for _ in range(len(hot))],
-    mode="markers",
-    marker=dict(size=12, color="red", opacity=1),
-    name="Hotspot"
+    lat=[14.5, 16],
+    lon=[76, 78],
+    mode="lines",
+    line=dict(color="#00ff88", width=2)
 ))
 
-# SCAN BUTTON
+# ================================
+# MAP SETTINGS
+# ================================
 fig.update_layout(
     mapbox=dict(
         style="carto-darkmatter",
@@ -150,23 +188,15 @@ fig.update_layout(
         zoom=6
     ),
     height=600,
-    margin=dict(l=0,r=0,t=0,b=0),
-    updatemenus=[{
-        "type": "buttons",
-        "buttons": [{
-            "label": "▶ SCAN",
-            "method": "animate",
-            "args": [None, {"frame": {"duration": 400}}]
-        }]
-    }]
+    margin=dict(l=0,r=0,t=0,b=0)
 )
 
 st.plotly_chart(fig, use_container_width=True)
 
 # ================================
-# HOTSPOT PANEL
+# 🔥 ALERT PANEL
 # ================================
 st.subheader("🔥 HIGH STRESS ALERTS")
 
 for _, r in hot.iterrows():
-    st.error(f"{r['Region']} | FSI={r['FSI']:.3f}")
+    st.error(f"HEX ZONE | FSI={r['FSI']:.3f}")
