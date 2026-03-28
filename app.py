@@ -1,5 +1,5 @@
 # =========================================
-# 🎮 AGRISTRESS AVENGERS — INTERACTIVE GAME
+# 🎮 AGRISTRESS AVENGERS — FINAL GAME APP
 # =========================================
 
 import streamlit as st
@@ -12,15 +12,21 @@ import h3
 st.set_page_config(page_title="AgriStress Avengers", layout="wide")
 
 # ================================
-# 🎮 UI
+# 🎮 NEON UI (UNCHANGED STYLE)
 # ================================
 st.markdown("""
 <style>
-html, body {background:#020a02;color:#00ff88;}
-h1 {text-align:center;text-shadow:0 0 20px #00ff88;}
+html, body, [data-testid="stAppViewContainer"] {
+    background: radial-gradient(circle at top, #021a02, #000000);
+    color:#00ff88;
+}
+h1 {
+    text-align:center;
+    text-shadow:0 0 25px #00ff88;
+}
 .game-box {
     border:1px solid #00ff44;
-    padding:10px;
+    padding:12px;
     border-radius:10px;
     background:#021a02;
 }
@@ -38,31 +44,32 @@ def load_data():
 
 df = load_data()
 
-uploaded = st.file_uploader("Upload Dataset", type=["xlsx","csv"])
+uploaded = st.file_uploader("📂 Upload Dataset", type=["xlsx","csv"])
 if uploaded:
     df = pd.read_excel(uploaded)
 
 if df is None:
+    st.error("❌ Upload dataset")
     st.stop()
 
 # ================================
-# YEAR
+# YEAR FILTER
 # ================================
 if "Year" not in df.columns:
     df["Year"] = np.random.choice([2020,2021,2022,2023,2024], len(df))
 
-year = st.slider("Year", 2020, 2024, 2024)
+year = st.slider("🕒 Year", 2020, 2024, 2024)
 df = df[df["Year"] == year]
 
 # ================================
-# FSI
+# FSI CALCULATION
 # ================================
 df["FSI"] = (
-    (1-df["Rainfall"])*0.25 +
-    (1-df["Price"])*0.25 +
-    (1-df["Yield"])*0.2 +
-    df["Cost"]*0.2 +
-    (1-df["Irrigation"])*0.1
+    (1 - df["Rainfall"]) * 0.25 +
+    (1 - df["Price"]) * 0.25 +
+    (1 - df["Yield"]) * 0.20 +
+    df["Cost"] * 0.20 +
+    (1 - df["Irrigation"]) * 0.10
 )
 
 # ================================
@@ -93,14 +100,14 @@ def get_reason(row):
 df["Reason"] = df.apply(get_reason, axis=1)
 
 # ================================
-# COORDS (REALISTIC CLUSTER)
+# COORDS (LIGHTWEIGHT)
 # ================================
 np.random.seed(1)
 df["lat"] = np.random.uniform(11.5, 18, len(df))
 df["lon"] = np.random.uniform(74, 78.5, len(df))
 
 # ================================
-# 🔷 H3 GRID
+# 🔷 H3 HEX GRID (FIXED)
 # ================================
 hex_bins = {}
 
@@ -115,8 +122,6 @@ records = []
 for h, rows in hex_bins.items():
     lat, lon = h3.cell_to_latlng(h)
     avg_fsi = np.mean([r["FSI"] for r in rows])
-
-    # take first row for metadata
     r = rows[0]
 
     records.append({
@@ -129,6 +134,16 @@ for h, rows in hex_bins.items():
     })
 
 hex_df = pd.DataFrame(records)
+
+# ================================
+# STRESS LABEL (GAME STYLE)
+# ================================
+def badge(s):
+    if s == "HIGH": return "🔴 HIGH"
+    elif s == "MEDIUM": return "🟡 MEDIUM"
+    else: return "🟢 LOW"
+
+hex_df["Stress_Label"] = hex_df["Stress"].apply(badge)
 
 # ================================
 # HEADER
@@ -150,12 +165,12 @@ fig.add_trace(go.Scattermapbox(
         colorscale="RdYlGn_r",
         opacity=0.85
     ),
-    customdata=hex_df[["Region","Stress","Reason"]],
+    customdata=hex_df[["Region","Stress_Label","Reason"]],
     hovertemplate=
-    "<b>%{customdata[0]}</b><br>" +
-    "FSI: %{marker.color:.3f}<br>" +
-    "Stress: %{customdata[1]}<br>" +
-    "Reason: %{customdata[2]}<extra></extra>"
+    "<b>🎯 %{customdata[0]}</b><br>" +
+    "⚡ FSI: %{marker.color:.3f}<br>" +
+    "🚨 %{customdata[1]}<br>" +
+    "🧠 %{customdata[2]}<extra></extra>"
 ))
 
 fig.update_layout(
@@ -171,12 +186,40 @@ fig.update_layout(
 st.plotly_chart(fig, use_container_width=True)
 
 # ================================
-# GAME INFO PANEL
+# 🎮 MISSION CONTROL PANEL
 # ================================
-st.subheader("🎮 MISSION INTEL PANEL")
+st.subheader("🎮 MISSION CONTROL")
 
-st.markdown('<div class="game-box">', unsafe_allow_html=True)
-st.write("🟢 Hover over map to scan districts")
-st.write("🔴 Red zones indicate high stress")
-st.write("🧠 Reasons show contributing factors")
-st.markdown('</div>', unsafe_allow_html=True)
+col1, col2 = st.columns([2,1])
+
+with col1:
+    selected = st.selectbox("🔍 Select District", hex_df["Region"].unique())
+    sel = hex_df[hex_df["Region"] == selected].iloc[0]
+
+    st.markdown('<div class="game-box">', unsafe_allow_html=True)
+    st.markdown(f"""
+    **📍 Region:** {sel['Region']}  
+    **⚡ FSI Score:** {sel['FSI']:.3f}  
+    **🚨 Stress Level:** {sel['Stress_Label']}  
+    **🧠 Reason:** {sel['Reason']}  
+    """)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+with col2:
+    st.markdown("### 🏆 TOP HOTSPOTS")
+    top = hex_df.sort_values("FSI", ascending=False).head(5)
+    for _, r in top.iterrows():
+        st.error(f"{r['Region']} ({r['FSI']:.2f})")
+
+# ================================
+# 📊 ANALYTICS
+# ================================
+st.subheader("📊 STRESS DISTRIBUTION")
+st.bar_chart(hex_df["Stress"].value_counts())
+
+# ================================
+# 🔥 ALERT PANEL
+# ================================
+st.subheader("🔥 HIGH STRESS ALERTS")
+for _, r in hex_df[hex_df["Stress"]=="HIGH"].iterrows():
+    st.error(f"{r['Region']} | FSI = {r['FSI']:.3f}")
