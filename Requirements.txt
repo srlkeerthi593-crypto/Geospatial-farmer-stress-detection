@@ -8,3 +8,7 @@ pyproj
 rtree
 plotly
 openpyxl
+streamlit
+pandas
+plotly
+openpyxl
