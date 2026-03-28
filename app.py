@@ -26,7 +26,7 @@ st.markdown("""
 # ════════════════════════════════════════
 @st.cache_data
 def load_default():
-    return pd.read_excel("data/agri_dataset_500_samples.xlsx")
+    return pd.read_excel("agri_dataset_500_samples.xlsx")
 
 
 def load_uploaded(file):
