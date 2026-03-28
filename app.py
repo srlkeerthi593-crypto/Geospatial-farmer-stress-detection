@@ -1,17 +1,18 @@
 # =========================================
-# 🎮 AGRISTRESS AVENGERS — STABLE GAME
+# 🎮 AGRISTRESS AVENGERS — ELITE VERSION
 # =========================================
 
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+import json
 import os
 
 st.set_page_config(page_title="AgriStress Avengers", layout="wide")
 
 # ================================
-# 🎮 UI
+# 🎮 NEON UI
 # ================================
 st.markdown("""
 <style>
@@ -21,13 +22,13 @@ html, body, [data-testid="stAppViewContainer"] {
 }
 h1 {
     text-align:center;
-    text-shadow:0 0 20px #00ff88;
+    text-shadow:0 0 25px #00ff88;
 }
 </style>
 """, unsafe_allow_html=True)
 
 # ================================
-# LOAD DATA (SAFE)
+# LOAD DATA
 # ================================
 @st.cache_data
 def load_data():
@@ -44,6 +45,12 @@ if uploaded:
 if df is None:
     st.error("Upload dataset")
     st.stop()
+
+# ================================
+# LOAD GEOJSON
+# ================================
+with open("KARNATAKA_DISTRICTS.geojson") as f:
+    geojson = json.load(f)
 
 # ================================
 # YEAR
@@ -69,11 +76,14 @@ df["FSI"] = (
 # DISTRICT SUMMARY
 # ================================
 dist = df.groupby("Region").mean(numeric_only=True).reset_index()
+dist["Region"] = dist["Region"].str.upper().str.strip()
 
-# Karnataka center coords (lightweight)
-np.random.seed(1)
-dist["lat"] = np.random.uniform(11.5, 18, len(dist))
-dist["lon"] = np.random.uniform(74, 78.5, len(dist))
+# ================================
+# MATCH GEOJSON
+# ================================
+for f in geojson["features"]:
+    name = f["properties"].get("district") or f["properties"].get("name")
+    f["properties"]["district_fixed"] = str(name).upper().strip()
 
 # ================================
 # HOTSPOTS
@@ -86,64 +96,77 @@ dist["Hotspot"] = dist["FSI"] >= p66
 # ================================
 st.markdown("<h1>⚡ AGRISTRESS AVENGERS ⚡</h1>", unsafe_allow_html=True)
 
-# KPIs
 c1,c2 = st.columns(2)
 c1.metric("AVG FSI", round(dist["FSI"].mean(),3))
 c2.metric("HOTSPOTS", dist["Hotspot"].sum())
 
 # ================================
-# 🔥 GAME HEATMAP (SAFE VERSION)
+# 🗺️ MAIN GAME MAP
 # ================================
 st.subheader("🗺️ MISSION MAP")
 
 fig = go.Figure()
 
-# Density Heatmap (FAST)
-fig.add_trace(go.Densitymapbox(
-    lat=dist["lat"],
-    lon=dist["lon"],
+# HEATMAP INSIDE KARNATAKA
+fig.add_trace(go.Choroplethmapbox(
+    geojson=geojson,
+    locations=dist["Region"],
+    featureidkey="properties.district_fixed",
     z=dist["FSI"],
-    radius=25,
     colorscale=[
         [0,"#00ff88"],
         [0.5,"#ffcc00"],
         [1,"#ff0000"]
     ],
-    opacity=0.85
+    marker_line_color="#00ff88",
+    marker_line_width=1,
+    colorbar_title="FSI"
 ))
 
-# Hotspots (pulse look without animation)
+# HOTSPOT GLOW (MULTI LAYER)
+hot = dist[dist["Hotspot"]]
+
 fig.add_trace(go.Scattermapbox(
-    lat=dist[dist["Hotspot"]]["lat"],
-    lon=dist[dist["Hotspot"]]["lon"],
+    lat=[np.random.uniform(12,17) for _ in range(len(hot))],
+    lon=[np.random.uniform(74,78) for _ in range(len(hot))],
     mode="markers",
-    marker=dict(
-        size=18,
-        color="red",
-        opacity=0.9
-    ),
-    name="Hotspots"
+    marker=dict(size=25, color="red", opacity=0.4),
+    name="Glow"
 ))
 
-# ================================
-# MAP SETTINGS
-# ================================
+fig.add_trace(go.Scattermapbox(
+    lat=[np.random.uniform(12,17) for _ in range(len(hot))],
+    lon=[np.random.uniform(74,78) for _ in range(len(hot))],
+    mode="markers",
+    marker=dict(size=12, color="red", opacity=1),
+    name="Hotspot"
+))
+
+# SCAN BUTTON
 fig.update_layout(
     mapbox=dict(
         style="carto-darkmatter",
         center=dict(lat=14.5, lon=76),
         zoom=6
     ),
+    height=600,
     margin=dict(l=0,r=0,t=0,b=0),
-    height=550
+    updatemenus=[{
+        "type": "buttons",
+        "buttons": [{
+            "label": "▶ SCAN",
+            "method": "animate",
+            "args": [None, {"frame": {"duration": 400}}]
+        }]
+    }]
 )
 
 st.plotly_chart(fig, use_container_width=True)
 
 # ================================
-# HOTSPOT LIST
+# HOTSPOT PANEL
 # ================================
 st.subheader("🔥 HIGH STRESS ALERTS")
 
-for _, r in dist[dist["Hotspot"]].iterrows():
+for _, r in hot.iterrows():
     st.error(f"{r['Region']} | FSI={r['FSI']:.3f}")
