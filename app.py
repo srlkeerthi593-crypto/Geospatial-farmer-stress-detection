@@ -1,6 +1,6 @@
 # =========================================================
 # ⚡ AGRISTRESS AVENGERS — ULTIMATE GAME EDITION
-# Uses real Karnataka dataset (750 samples)
+# SELF-CONTAINED VERSION (no external file needed)
 # Features: Heatmap | Farmer Game | Music | Animations
 # =========================================================
 
@@ -9,6 +9,7 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import os
+import random
 
 # ─────────────────────────────────────────────────────────
 # PAGE CONFIG — Must be the VERY FIRST Streamlit command
@@ -591,6 +592,106 @@ DISTRICT_COORDS = {
 }
 
 # ─────────────────────────────────────────────────────────
+# EMBEDDED DATASET — 750 synthetic samples matching the
+# original Karnataka dataset structure exactly.
+# Columns: Region, Crop, Rainfall, Price, Cost, Yield, Irrigation
+# All numeric values are between 0.0 and 1.0
+# ─────────────────────────────────────────────────────────
+
+# Seed for reproducibility
+random.seed(42)
+np.random.seed(42)
+
+DISTRICTS = list(DISTRICT_COORDS.keys())  # 30 districts
+
+CROPS = [
+    "Rice", "Wheat", "Maize", "Ragi", "Jowar",
+    "Sugarcane", "Cotton", "Groundnut", "Sunflower", "Areca Nut",
+    "Coffee", "Coconut", "Banana", "Tomato", "Onion"
+]
+
+# Per-district baseline stress profiles (realistic regional variation)
+DISTRICT_PROFILES = {
+    "BAGALKOT":        dict(rain=0.38, price=0.52, yield_=0.46, cost=0.58, irrig=0.42),
+    "BALLARI":         dict(rain=0.32, price=0.48, yield_=0.40, cost=0.62, irrig=0.35),
+    "BELAGAVI":        dict(rain=0.55, price=0.58, yield_=0.60, cost=0.45, irrig=0.55),
+    "BENGALURU RURAL": dict(rain=0.60, price=0.65, yield_=0.62, cost=0.40, irrig=0.58),
+    "BENGALURU URBAN": dict(rain=0.58, price=0.70, yield_=0.65, cost=0.38, irrig=0.60),
+    "BIDAR":           dict(rain=0.35, price=0.45, yield_=0.38, cost=0.65, irrig=0.32),
+    "CHAMARAJANAGAR":  dict(rain=0.50, price=0.50, yield_=0.52, cost=0.50, irrig=0.48),
+    "CHIKKABALLAPUR":  dict(rain=0.45, price=0.55, yield_=0.50, cost=0.48, irrig=0.45),
+    "CHIKKAMAGALURU":  dict(rain=0.70, price=0.65, yield_=0.68, cost=0.35, irrig=0.65),
+    "CHITRADURGA":     dict(rain=0.30, price=0.42, yield_=0.35, cost=0.65, irrig=0.28),
+    "DAKSHINA KANNADA":dict(rain=0.78, price=0.68, yield_=0.72, cost=0.32, irrig=0.72),
+    "DAVANAGERE":      dict(rain=0.48, price=0.52, yield_=0.50, cost=0.50, irrig=0.46),
+    "DHARWAD":         dict(rain=0.52, price=0.55, yield_=0.55, cost=0.46, irrig=0.50),
+    "GADAG":           dict(rain=0.36, price=0.46, yield_=0.40, cost=0.60, irrig=0.35),
+    "HASSAN":          dict(rain=0.62, price=0.60, yield_=0.62, cost=0.40, irrig=0.60),
+    "HAVERI":          dict(rain=0.46, price=0.50, yield_=0.48, cost=0.52, irrig=0.44),
+    "KALABURAGI":      dict(rain=0.28, price=0.40, yield_=0.32, cost=0.68, irrig=0.25),
+    "KODAGU":          dict(rain=0.82, price=0.72, yield_=0.78, cost=0.28, irrig=0.75),
+    "KOLAR":           dict(rain=0.40, price=0.55, yield_=0.44, cost=0.55, irrig=0.38),
+    "KOPPAL":          dict(rain=0.30, price=0.42, yield_=0.35, cost=0.66, irrig=0.28),
+    "MANDYA":          dict(rain=0.58, price=0.60, yield_=0.62, cost=0.42, irrig=0.65),
+    "MYSURU":          dict(rain=0.60, price=0.62, yield_=0.63, cost=0.40, irrig=0.60),
+    "RAICHUR":         dict(rain=0.28, price=0.38, yield_=0.30, cost=0.70, irrig=0.22),
+    "RAMANAGARA":      dict(rain=0.52, price=0.55, yield_=0.54, cost=0.46, irrig=0.50),
+    "SHIVAMOGGA":      dict(rain=0.72, price=0.65, yield_=0.70, cost=0.33, irrig=0.68),
+    "TUMAKURU":        dict(rain=0.42, price=0.52, yield_=0.46, cost=0.54, irrig=0.40),
+    "UDUPI":           dict(rain=0.80, price=0.68, yield_=0.74, cost=0.30, irrig=0.72),
+    "UTTARA KANNADA":  dict(rain=0.75, price=0.62, yield_=0.68, cost=0.35, irrig=0.65),
+    "VIJAYAPURA":      dict(rain=0.32, price=0.44, yield_=0.36, cost=0.64, irrig=0.30),
+    "YADGIR":          dict(rain=0.25, price=0.38, yield_=0.28, cost=0.72, irrig=0.20),
+}
+
+
+@st.cache_data
+def generate_dataset():
+    """Generate 750 synthetic farm records matching the original dataset structure."""
+    records = []
+    samples_per_district = 750 // len(DISTRICTS)  # 25 per district
+    extra = 750 - samples_per_district * len(DISTRICTS)
+
+    for i, district in enumerate(DISTRICTS):
+        p = DISTRICT_PROFILES[district]
+        n = samples_per_district + (1 if i < extra else 0)
+
+        for _ in range(n):
+            crop = random.choice(CROPS)
+            # Add realistic noise around district baseline
+            noise = 0.12
+            rain  = float(np.clip(np.random.normal(p["rain"],  noise), 0.05, 0.98))
+            price = float(np.clip(np.random.normal(p["price"], noise), 0.05, 0.98))
+            yld   = float(np.clip(np.random.normal(p["yield_"],noise), 0.05, 0.98))
+            cost  = float(np.clip(np.random.normal(p["cost"],  noise), 0.05, 0.98))
+            irrig = float(np.clip(np.random.normal(p["irrig"], noise), 0.05, 0.98))
+
+            # Crop-specific adjustments
+            if crop in ["Coffee", "Coconut", "Areca Nut"]:
+                rain  = min(rain + 0.10, 0.98)
+                irrig = min(irrig + 0.08, 0.98)
+            elif crop in ["Ragi", "Jowar"]:
+                rain  = max(rain - 0.05, 0.05)
+                cost  = max(cost - 0.05, 0.05)
+            elif crop == "Cotton":
+                cost  = min(cost + 0.08, 0.98)
+                price = min(price + 0.05, 0.98)
+
+            records.append({
+                "Region":     district,
+                "Crop":       crop,
+                "Rainfall":   round(rain,  4),
+                "Price":      round(price, 4),
+                "Cost":       round(cost,  4),
+                "Yield":      round(yld,   4),
+                "Irrigation": round(irrig, 4),
+            })
+
+    df = pd.DataFrame(records)
+    return df
+
+
+# ─────────────────────────────────────────────────────────
 # SESSION STATE INIT (persists across reruns)
 # ─────────────────────────────────────────────────────────
 if "score"        not in st.session_state: st.session_state.score = 0
@@ -605,15 +706,6 @@ if "achievements" not in st.session_state:
     }
 if "music_on"     not in st.session_state: st.session_state.music_on = False
 if "last_fsi"     not in st.session_state: st.session_state.last_fsi = 0.5
-
-# ─────────────────────────────────────────────────────────
-# DATA LOADING
-# ─────────────────────────────────────────────────────────
-@st.cache_data
-def load_data(path):
-    return pd.read_excel(path)
-
-DEFAULT_PATH = "karnataka_dataset_750_samples.xlsx"
 
 # ─────────────────────────────────────────────────────────
 # FSI CALCULATION
@@ -689,7 +781,6 @@ def aggregate(df):
 # HEATMAP BUILDER
 # ─────────────────────────────────────────────────────────
 def build_map(hex_df, zoom=6.2):
-    color_map = {"HIGH": "#ff2244", "MEDIUM": "#ffea00", "LOW": "#39ff14"}
     marker_sizes = hex_df["FSI"].apply(lambda x: 14 + x * 14)
 
     fig = go.Figure()
@@ -767,7 +858,7 @@ def farmer_state(fsi):
     elif fsi < 0.38:
         return ("🧑‍🌾", "",
                 "🙂 CONTENT",
-                "괜찮아. Things are okay. A little more improvement and I'll be really happy! 😊",
+                "Things are okay. A little more improvement and I'll be really happy! 😊",
                 "#00ff88")
     elif fsi < 0.50:
         return ("😐", "",
@@ -865,8 +956,8 @@ st.divider()
 with st.expander("📂 DATA UPLOAD — Click to load your own dataset (optional)", expanded=False):
     st.markdown("""
     **What is this?**
-    By default, the app uses a pre-loaded dataset of 750 Karnataka farm samples.
-    You can upload your own Excel file (.xlsx) if you have updated data.
+    By default, the app uses a **built-in dataset** of 750 Karnataka farm samples (auto-generated with realistic regional profiles).
+    You can upload your own Excel file (.xlsx) if you have real/updated data.
 
     **Your file must have these columns:**
     `Region, Crop, Rainfall, Price, Cost, Yield, Irrigation`
@@ -874,7 +965,7 @@ with st.expander("📂 DATA UPLOAD — Click to load your own dataset (optional)
     """)
     uploaded = st.file_uploader("Upload your Excel file", type=["xlsx", "csv"])
 
-# Load dataset
+# Load dataset — use uploaded file OR the built-in generated dataset
 if uploaded:
     try:
         df_raw = pd.read_excel(uploaded) if uploaded.name.endswith("xlsx") else pd.read_csv(uploaded)
@@ -882,11 +973,15 @@ if uploaded:
     except Exception as e:
         st.error(f"❌ Could not read file: {e}")
         df_raw = None
-elif os.path.exists(DEFAULT_PATH):
-    df_raw = load_data(DEFAULT_PATH)
+elif os.path.exists("karnataka_dataset_750_samples.xlsx"):
+    # Still support the original file if it exists alongside the script
+    @st.cache_data
+    def load_excel():
+        return pd.read_excel("karnataka_dataset_750_samples.xlsx")
+    df_raw = load_excel()
 else:
-    st.error("❌ Dataset not found. Please upload `karnataka_dataset_750_samples.xlsx`")
-    st.stop()
+    # ✅ Use the built-in generated dataset — no file needed!
+    df_raw = generate_dataset()
 
 if df_raw is None:
     st.stop()
@@ -1127,7 +1222,6 @@ with tab2:
         st.markdown("<small>Load real-world seasonal conditions instantly</small>", unsafe_allow_html=True)
         ps1, ps2, ps3, ps4 = st.columns(4)
 
-        # We use session state to track which preset was clicked
         if "preset" not in st.session_state:
             st.session_state.preset = None
 
@@ -1149,8 +1243,6 @@ with tab2:
                 st.rerun()
 
     # Apply preset if selected
-    # (Streamlit sliders don't support external value changes after init,
-    #  so we show a tip about what the preset does)
     if st.session_state.preset == "monsoon":
         rain, price, yld, cost, irrig = 85, 55, 72, 42, 80
     elif st.session_state.preset == "dry":
@@ -1257,7 +1349,7 @@ with tab2:
                 <div style='font-family:Share Tech Mono,monospace;font-size:0.65rem;
                      color:rgba(0,255,136,0.4);letter-spacing:0.2em'>FARM STRESS INDEX</div>
                 <div style='font-size:0.72rem;margin-top:4px;color:{fsi_color}'>
-                    {'🔴 HIGH STRESS' if g_fsi > p66 else '🟡 MEDIUM STRESS' if g_fsi > p33 else '🟢 LOW STRESS'}
+                    {'🔴 HIGH STRESS' if g_fsi >= 0.62 else '🟡 MEDIUM STRESS' if g_fsi >= 0.38 else '🟢 LOW STRESS'}
                 </div>
             </div>
         </div>
