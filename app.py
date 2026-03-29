@@ -1300,60 +1300,52 @@ with tab2:
             st.markdown("<script>AgriMusic.playSFX('win');</script>", unsafe_allow_html=True)
         st.session_state.last_fsi = g_fsi
 
-        st.markdown(f"""
-        <div class='farmer-box'>
-            <!-- Score & XP -->
-            <div style='font-family:Orbitron,monospace;font-size:0.62rem;
-                 color:rgba(0,255,136,0.5);letter-spacing:0.2em'>FARMER XP</div>
-            <div style='font-family:Orbitron,monospace;font-size:2rem;
-                 font-weight:900;color:#39ff14;
-                 filter:drop-shadow(0 0 12px rgba(57,255,20,0.6))'>
-                 {str(st.session_state.score).zfill(4)}</div>
-            <div style='font-family:Share Tech Mono,monospace;font-size:0.7rem;
-                 color:rgba(0,255,136,0.4)'>LEVEL {st.session_state.level}</div>
-            <div class='xp-track' style='margin:6px 0'>
-                <div class='xp-fill' style='width:{st.session_state.xp}%'></div>
-            </div>
-            <div style='font-size:0.62rem;color:rgba(0,255,136,0.3);
-                 font-family:Share Tech Mono,monospace;margin-bottom:12px'>
-                 XP {st.session_state.xp}/100</div>
+        # Build farmer box as a clean string (avoids HTML comment rendering issues)
+        score_str   = str(st.session_state.score).zfill(4)
+        xp_val      = st.session_state.xp
+        lvl_val     = st.session_state.level
+        fsi_str     = f"{g_fsi:.3f}"
+        stress_lbl  = ("&#128308; HIGH STRESS" if g_fsi >= 0.62
+                        else "&#128993; MEDIUM STRESS" if g_fsi >= 0.38
+                        else "&#128994; LOW STRESS")
 
-            <!-- Farmer character -->
-            <span class='farmer-emoji {anim_cls}'>{emoji}</span>
-
-            <div style='font-family:Orbitron,monospace;font-size:0.72rem;
-                 font-weight:700;color:#00ff88;letter-spacing:0.1em;margin:8px 0 4px'>
-                 RAMU — KARNATAKA FARMER</div>
-
-            <!-- Mood bar -->
-            <div style='font-family:Share Tech Mono,monospace;font-size:0.65rem;
-                 color:rgba(0,255,136,0.4);text-align:left;margin-bottom:3px'>
-                 HAPPINESS METER {mood_pct}%</div>
-            <div class='mood-track'>
-                <div class='mood-fill-inner' style='width:{mood_pct}%;background:{m_color}'></div>
-            </div>
-
-            <!-- Status text -->
-            <div style='font-family:Orbitron,monospace;font-size:0.8rem;font-weight:700;
-                 color:{st_color};margin:10px 0 4px;text-shadow:0 0 10px {st_color}'>
-                 {status_txt}</div>
-            <div style='font-size:0.78rem;color:rgba(0,255,136,0.55);
-                 font-style:italic;line-height:1.4;min-height:44px'>
-                 {message}</div>
-
-            <!-- FSI display -->
-            <div style='background:rgba(0,0,0,0.4);border:1px solid rgba(0,255,136,0.2);
-                 border-radius:6px;padding:10px;margin-top:12px'>
-                <div class='fsi-big' style='color:{fsi_color};text-shadow:{fsi_glow}'>
-                    {g_fsi:.3f}</div>
-                <div style='font-family:Share Tech Mono,monospace;font-size:0.65rem;
-                     color:rgba(0,255,136,0.4);letter-spacing:0.2em'>FARM STRESS INDEX</div>
-                <div style='font-size:0.72rem;margin-top:4px;color:{fsi_color}'>
-                    {'🔴 HIGH STRESS' if g_fsi >= 0.62 else '🟡 MEDIUM STRESS' if g_fsi >= 0.38 else '🟢 LOW STRESS'}
-                </div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        farmer_html = (
+            "<div class='farmer-box'>"
+            f"<div style='font-family:Orbitron,monospace;font-size:0.62rem;"
+            f"color:rgba(0,255,136,0.5);letter-spacing:0.2em'>FARMER XP</div>"
+            f"<div style='font-family:Orbitron,monospace;font-size:2rem;"
+            f"font-weight:900;color:#39ff14;"
+            f"filter:drop-shadow(0 0 12px rgba(57,255,20,0.6))'>{score_str}</div>"
+            f"<div style='font-family:Share Tech Mono,monospace;font-size:0.7rem;"
+            f"color:rgba(0,255,136,0.4)'>LEVEL {lvl_val}</div>"
+            f"<div class='xp-track' style='margin:6px 0'>"
+            f"<div class='xp-fill' style='width:{xp_val}%'></div></div>"
+            f"<div style='font-size:0.62rem;color:rgba(0,255,136,0.3);"
+            f"font-family:Share Tech Mono,monospace;margin-bottom:12px'>XP {xp_val}/100</div>"
+            f"<span class='farmer-emoji {anim_cls}' style='font-size:5rem;display:block;"
+            f"line-height:1.2'>{emoji}</span>"
+            f"<div style='font-family:Orbitron,monospace;font-size:0.72rem;"
+            f"font-weight:700;color:#00ff88;letter-spacing:0.1em;margin:8px 0 4px'>"
+            f"RAMU &#8212; KARNATAKA FARMER</div>"
+            f"<div style='font-family:Share Tech Mono,monospace;font-size:0.65rem;"
+            f"color:rgba(0,255,136,0.4);text-align:left;margin-bottom:3px'>"
+            f"HAPPINESS METER {mood_pct}%</div>"
+            f"<div class='mood-track'>"
+            f"<div class='mood-fill-inner' style='width:{mood_pct}%;background:{m_color}'></div></div>"
+            f"<div style='font-family:Orbitron,monospace;font-size:0.8rem;font-weight:700;"
+            f"color:{st_color};margin:10px 0 4px;text-shadow:0 0 10px {st_color}'>{status_txt}</div>"
+            f"<div style='font-size:0.78rem;color:rgba(0,255,136,0.55);"
+            f"font-style:italic;line-height:1.4;min-height:44px'>{message}</div>"
+            f"<div style='background:rgba(0,0,0,0.4);border:1px solid rgba(0,255,136,0.2);"
+            f"border-radius:6px;padding:10px;margin-top:12px'>"
+            f"<div class='fsi-big' style='color:{fsi_color};text-shadow:{fsi_glow}'>{fsi_str}</div>"
+            f"<div style='font-family:Share Tech Mono,monospace;font-size:0.65rem;"
+            f"color:rgba(0,255,136,0.4);letter-spacing:0.2em'>FARM STRESS INDEX</div>"
+            f"<div style='font-size:0.72rem;margin-top:4px;color:{fsi_color}'>{stress_lbl}</div>"
+            f"</div>"
+            f"</div>"
+        )
+        st.markdown(farmer_html, unsafe_allow_html=True)
 
     # ── RIGHT: Achievements + Stress Drivers ─────────────────
     with gc3:
@@ -1455,7 +1447,7 @@ with tab3:
             x=stress_counts.index,
             y=stress_counts.values,
             marker_color=bar_colors,
-            marker_line_color=["#ff000088","#ffff0088","#00ff0088"],
+            marker_line_color=["rgba(255,0,0,0.5)","rgba(255,255,0,0.5)","rgba(0,255,0,0.5)"],
             marker_line_width=1,
             text=stress_counts.values.astype(int),
             textposition="outside",
