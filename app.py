@@ -1393,7 +1393,7 @@ with tab2:
                 """, unsafe_allow_html=True)
         else:
             st.markdown("""
-            <div style='padding:10px;border:1px solid #39ff1444;border-radius:6px;
+            <div style='padding:10px;border:1px solid rgba(57,255,20,0.27);border-radius:6px;
                  text-align:center;color:#39ff14;font-weight:700'>
                 ✅ ALL PARAMETERS HEALTHY!<br>
                 <span style='font-size:0.75rem;opacity:0.6'>Ramu is thriving!</span>
@@ -1516,9 +1516,15 @@ with tab3:
     # Parameter averages radar-style
     st.markdown("### 📡 DISTRICT PARAMETER AVERAGES")
     params = ["Rainfall","Price","Yield","Irrigation"]
+    RADAR_FILL = {
+        "HIGH":   ("rgba(255,34,68,1)",  "rgba(255,34,68,0.12)"),
+        "MEDIUM": ("rgba(255,234,0,1)",  "rgba(255,234,0,0.12)"),
+        "LOW":    ("rgba(57,255,20,1)",  "rgba(57,255,20,0.12)"),
+    }
     fig_radar = go.Figure()
-    for stress_lvl, color in [("HIGH","#ff2244"),("MEDIUM","#ffea00"),("LOW","#39ff14")]:
-        subset = hex_df[hex_df["Stress"]==stress_lvl]
+    for stress_lvl in ["HIGH", "MEDIUM", "LOW"]:
+        line_c, fill_c = RADAR_FILL[stress_lvl]
+        subset = hex_df[hex_df["Stress"] == stress_lvl]
         if len(subset) > 0:
             means = [subset[p].mean() for p in params]
             fig_radar.add_trace(go.Scatterpolar(
@@ -1526,11 +1532,8 @@ with tab3:
                 theta=params + [params[0]],
                 fill="toself",
                 name=stress_lvl,
-                line_color=color,
-                fillcolor=color.replace(")", ",0.1)").replace("#", "rgba(").replace(
-                    "rgba(ff2244,0.1)","rgba(255,34,68,0.1)").replace(
-                    "rgba(ffea00,0.1)","rgba(255,234,0,0.1)").replace(
-                    "rgba(39ff14,0.1)","rgba(57,255,20,0.1)"),
+                line_color=line_c,
+                fillcolor=fill_c,
             ))
     fig_radar.update_layout(
         polar=dict(
