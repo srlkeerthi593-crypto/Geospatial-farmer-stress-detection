@@ -4,3 +4,4 @@ numpy
 plotly
 openpyxl
 h3==4.1.0
+sklearn
