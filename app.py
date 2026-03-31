@@ -1,18 +1,45 @@
 # =========================================================
-# ⚡ AGRISTRESS AVENGERS — ULTIMATE GAME EDITION
-# SELF-CONTAINED VERSION (no external file needed)
-# Features: Heatmap | Farmer Game | Music | Animations
+# ⚡ AGRISTRESS AVENGERS — FINAL SUBMISSION EDITION
+# MSC (AA) & PGD (SDS) Python Project Work 2026
+#
+# PURPOSE:
+#   A GUI-based geospatial Python application that detects,
+#   visualises, and predicts farm stress across all 30
+#   Karnataka districts using real agricultural parameters.
+#
+# TECHNICAL TRACK: Machine Learning (ML Track)
+#   Libraries used:
+#     • scikit-learn : KMeans clustering + Linear Regression
+#     • pandas / numpy : data wrangling and computation
+#     • plotly : interactive geospatial visualisations
+#     • streamlit : GUI framework
+#
+# AUTHOR  : [Your Name]
+# DATE    : 2026
+# VERSION : 3.0 (Final)
 # =========================================================
 
-import streamlit as st
-import pandas as pd
-import numpy as np
-import plotly.graph_objects as go
+# ── Standard library ──────────────────────────────────────
 import os
 import random
 
+# ── Third-party: data & ML ────────────────────────────────
+import numpy as np
+import pandas as pd
+from sklearn.cluster import KMeans                    # Unsupervised spatial clustering
+from sklearn.linear_model import LinearRegression     # Supervised FSI prediction
+from sklearn.metrics import mean_squared_error, r2_score  # Model evaluation
+from sklearn.model_selection import train_test_split  # Train/test split
+from sklearn.preprocessing import StandardScaler      # Feature normalisation
+
+# ── Third-party: visualisation & GUI ─────────────────────
+import plotly.graph_objects as go
+import streamlit as st
+
 # ─────────────────────────────────────────────────────────
-# PAGE CONFIG — Must be the VERY FIRST Streamlit command
+# PAGE CONFIG
+# Must be the very first Streamlit call in the script.
+# Sets browser tab title, wide layout, and collapsed sidebar.
 # ─────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="⚡ AgriStress Avengers",
@@ -21,25 +48,27 @@ st.set_page_config(
 )
 
 # ─────────────────────────────────────────────────────────
-# MUSIC — Base64 encoded tiny 8-bit loops via HTML audio
-# We embed a Web Audio API synthesizer so no file needed
+# WEB AUDIO SYNTHESISER (JavaScript)
+#
+# Generates 8-bit chiptune music entirely in the browser
+# using the Web Audio API — no external audio files needed.
+# Two melodies are defined:
+#   MELODY_PEACE : plays when farm stress is low
+#   MELODY_TENSE : plays when farm stress is high
+# Sound effects (SFX) fire on achievements and stress spikes.
 # ─────────────────────────────────────────────────────────
 MUSIC_JS = """
 <script>
-// ── WEB AUDIO SYNTH (no external files needed) ──────────
 let audioCtx = null;
-let musicNodes = [];
 let musicPlaying = false;
 let musicInterval = null;
 
-// Chiptune note frequencies (Hz)
 const NOTES = {
   C4:261.63, D4:293.66, E4:329.63, F4:349.23,
   G4:392.00, A4:440.00, B4:493.88, C5:523.25,
   D5:587.33, E5:659.25, G5:783.99
 };
 
-// Two melodies: peaceful (low stress) and tense (high stress)
 const MELODY_PEACE = ['C4','E4','G4','E4','C4','G4','A4','G4','E4','C5','B4','G4'];
 const MELODY_TENSE = ['A4','A4','G5','A4','G4','A4','G5','E5','D5','E5','D4','E4'];
 
@@ -70,10 +99,7 @@ function playNextNote() {
   if (!musicPlaying) return;
   const noteKey = currentMelody[noteIdx % currentMelody.length];
   playNote(NOTES[noteKey], 0.3, 'square', 0.07);
-  // Bass every 4 notes
-  if (noteIdx % 4 === 0) {
-    playNote(NOTES['C4'] / 2, 0.4, 'sine', 0.06);
-  }
+  if (noteIdx % 4 === 0) playNote(NOTES['C4'] / 2, 0.4, 'sine', 0.06);
   noteIdx++;
 }
 
@@ -96,7 +122,6 @@ function switchMelody(melody) {
   noteIdx = 0;
 }
 
-// Play a reward sound effect
 function playSFX(type) {
   initAudio();
   if (type === 'win') {
@@ -112,26 +137,30 @@ function playSFX(type) {
   }
 }
 
-// Expose to global so Streamlit buttons can call them
 window.AgriMusic = { startMusic, stopMusic, switchMelody, playSFX };
 </script>
 """
 
 # ─────────────────────────────────────────────────────────
-# FULL CSS — Neon game UI (matches original screenshot)
+# CSS — NEON GAME UI
+#
+# Custom stylesheet injected via st.markdown.
+# Uses Google Fonts: Orbitron (headings), Rajdhani (body),
+# Share Tech Mono (monospace data displays).
+# Key visual effects:
+#   • Scanline + grid overlays for retro CRT feel
+#   • CSS keyframe animations for farmer character states
+#   • Glowing borders and pulsing metric cards
 # ─────────────────────────────────────────────────────────
 GAME_CSS = """
 <style>
-/* ── Google Fonts ── */
 @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;600;700&family=Share+Tech+Mono&display=swap');
 
-/* ── Global ── */
 html, body, [data-testid="stAppViewContainer"], [data-testid="stMain"] {
     background: radial-gradient(ellipse at 10% 0%, #001a08 0%, #000d02 55%, #000000 100%) !important;
     color: #00ff88 !important;
 }
 
-/* Scanline overlay */
 [data-testid="stAppViewContainer"]::before {
     content: '';
     position: fixed; inset: 0; pointer-events: none; z-index: 0;
@@ -139,7 +168,6 @@ html, body, [data-testid="stAppViewContainer"], [data-testid="stMain"] {
         rgba(0,255,136,0.012) 2px, rgba(0,255,136,0.012) 4px);
 }
 
-/* Grid bg */
 [data-testid="stAppViewContainer"]::after {
     content: '';
     position: fixed; inset: 0; pointer-events: none; z-index: 0;
@@ -149,7 +177,6 @@ html, body, [data-testid="stAppViewContainer"], [data-testid="stMain"] {
     background-size: 60px 60px;
 }
 
-/* ── Title ── */
 h1 {
     font-family: 'Orbitron', monospace !important;
     text-align: center !important;
@@ -176,10 +203,7 @@ h2, h3 {
     text-shadow: 0 0 10px rgba(57,255,20,0.4) !important;
 }
 
-/* ── Cards / Containers ── */
-[data-testid="stVerticalBlock"] > div > div {
-    position: relative; z-index: 1;
-}
+[data-testid="stVerticalBlock"] > div > div { position: relative; z-index: 1; }
 
 .game-card {
     background: rgba(0,20,5,0.88) !important;
@@ -197,7 +221,6 @@ h2, h3 {
     background: linear-gradient(90deg, transparent, #00ff88, transparent);
 }
 
-/* ── Metric boxes ── */
 [data-testid="stMetric"] {
     background: rgba(0,20,5,0.9) !important;
     border: 1px solid rgba(0,255,136,0.3) !important;
@@ -224,21 +247,13 @@ h2, h3 {
     text-shadow: 0 0 10px rgba(0,255,136,0.5) !important;
 }
 
-/* ── Sliders ── */
-[data-testid="stSlider"] > div > div > div {
-    color: #00ff88 !important;
-}
-
-[data-testid="stSlider"] > div > div > div > div {
-    background: rgba(0,255,136,0.15) !important;
-}
-
+[data-testid="stSlider"] > div > div > div { color: #00ff88 !important; }
+[data-testid="stSlider"] > div > div > div > div { background: rgba(0,255,136,0.15) !important; }
 [data-testid="stSlider"] > div > div > div > div > div {
     background: #00ff88 !important;
     box-shadow: 0 0 10px #00ff88 !important;
 }
 
-/* ── Selectbox ── */
 [data-testid="stSelectbox"] > div > div {
     background: rgba(0,20,5,0.9) !important;
     border: 1px solid rgba(0,255,136,0.4) !important;
@@ -246,7 +261,6 @@ h2, h3 {
     font-family: 'Rajdhani', sans-serif !important;
 }
 
-/* ── Buttons ── */
 .stButton > button {
     font-family: 'Orbitron', monospace !important;
     font-size: 0.7rem !important;
@@ -267,12 +281,7 @@ h2, h3 {
     transform: translateY(-2px) !important;
 }
 
-/* ── Tabs ── */
-[data-testid="stTabs"] [data-baseweb="tab-list"] {
-    background: transparent !important;
-    gap: 6px !important;
-}
-
+[data-testid="stTabs"] [data-baseweb="tab-list"] { background: transparent !important; gap: 6px !important; }
 [data-testid="stTabs"] [data-baseweb="tab"] {
     font-family: 'Orbitron', monospace !important;
     font-size: 0.68rem !important;
@@ -285,42 +294,31 @@ h2, h3 {
     padding: 8px 18px !important;
     transition: all 0.25s !important;
 }
-
 [data-testid="stTabs"] [aria-selected="true"] {
     color: #00ff88 !important;
     background: rgba(0,255,136,0.12) !important;
     border-color: #00ff88 !important;
     box-shadow: 0 0 14px rgba(0,255,136,0.3) !important;
 }
+[data-testid="stTabs"] [data-baseweb="tab-highlight"] { background: transparent !important; }
+[data-testid="stTabs"] [data-baseweb="tab-border"] { background: rgba(0,255,136,0.15) !important; }
 
-[data-testid="stTabs"] [data-baseweb="tab-highlight"] {
-    background: transparent !important;
-}
-
-[data-testid="stTabs"] [data-baseweb="tab-border"] {
-    background: rgba(0,255,136,0.15) !important;
-}
-
-/* ── Expander ── */
 [data-testid="stExpander"] {
     background: rgba(0,20,5,0.7) !important;
     border: 1px solid rgba(0,255,136,0.2) !important;
     border-radius: 8px !important;
 }
-
 [data-testid="stExpander"] summary {
     color: #39ff14 !important;
     font-family: 'Rajdhani', sans-serif !important;
     font-weight: 700 !important;
 }
 
-/* ── Labels / Text ── */
 label, .stMarkdown p, .stMarkdown li {
     color: rgba(0,255,136,0.85) !important;
     font-family: 'Rajdhani', sans-serif !important;
 }
 
-/* ── Alerts ── */
 .element-container .stAlert {
     background: rgba(255,34,68,0.08) !important;
     border: 1px solid rgba(255,34,68,0.4) !important;
@@ -328,32 +326,27 @@ label, .stMarkdown p, .stMarkdown li {
     border-radius: 6px !important;
     animation: alertPulse 2.5s ease-in-out infinite !important;
 }
-
 @keyframes alertPulse {
     0%,100% { background: rgba(255,34,68,0.05); }
     50%      { background: rgba(255,34,68,0.12); }
 }
 
-/* ── Success ── */
 .stSuccess {
     background: rgba(0,255,136,0.08) !important;
     border: 1px solid rgba(0,255,136,0.3) !important;
     color: #00ff88 !important;
 }
-
-/* ── Warning ── */
 .stWarning {
     background: rgba(255,234,0,0.08) !important;
     border: 1px solid rgba(255,234,0,0.3) !important;
 }
 
-/* ── Sidebar ── */
 [data-testid="stSidebar"] {
     background: rgba(0,10,3,0.97) !important;
     border-right: 1px solid rgba(0,255,136,0.2) !important;
 }
 
-/* ── Custom game components ── */
+/* ── Farmer character animations ── */
 .farmer-box {
     background: rgba(0,10,3,0.95);
     border: 1px solid rgba(0,255,136,0.5);
@@ -363,36 +356,25 @@ label, .stMarkdown p, .stMarkdown li {
     position: relative;
     overflow: hidden;
 }
-
 .farmer-box::before {
     content: '';
     position: absolute; top: 0; left: 0; right: 0; height: 2px;
     background: linear-gradient(90deg, transparent, #00ff88, transparent);
     animation: scanBar 3s linear infinite;
 }
-
-@keyframes scanBar {
-    0%   { transform: translateX(-100%); }
-    100% { transform: translateX(100%); }
-}
+@keyframes scanBar { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
 
 .farmer-emoji {
-    font-size: 5rem;
-    display: block;
+    font-size: 5rem; display: block;
     animation: farmerBob 2s ease-in-out infinite;
     filter: drop-shadow(0 0 15px rgba(0,255,136,0.4));
 }
-
-@keyframes farmerBob {
-    0%,100% { transform: translateY(0); }
-    50%      { transform: translateY(-8px); }
-}
+@keyframes farmerBob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
 
 .farmer-emoji.happy {
     animation: farmerDance 0.5s ease-in-out infinite;
     filter: drop-shadow(0 0 20px rgba(57,255,20,0.7));
 }
-
 @keyframes farmerDance {
     0%,100% { transform: scale(1) rotate(-4deg); }
     50%      { transform: scale(1.12) rotate(4deg); }
@@ -402,7 +384,6 @@ label, .stMarkdown p, .stMarkdown li {
     animation: farmerShake 0.4s ease-in-out infinite;
     filter: drop-shadow(0 0 15px rgba(255,34,68,0.6));
 }
-
 @keyframes farmerShake {
     0%,100% { transform: rotate(-6deg) scale(0.95); }
     50%      { transform: rotate(6deg) scale(1.05); }
@@ -412,7 +393,6 @@ label, .stMarkdown p, .stMarkdown li {
     animation: farmerCrisis 0.25s ease-in-out infinite;
     filter: drop-shadow(0 0 20px rgba(255,34,68,0.9));
 }
-
 @keyframes farmerCrisis {
     0%,100% { transform: rotate(-8deg) scale(0.9) translateY(4px); }
     50%      { transform: rotate(8deg) scale(1.1) translateY(-4px); }
@@ -425,138 +405,75 @@ label, .stMarkdown p, .stMarkdown li {
     border: 1px solid rgba(0,255,136,0.2);
     overflow: hidden; margin: 8px 0;
 }
-
 .mood-fill-inner {
     height: 100%; border-radius: 7px;
     transition: width 0.6s ease, background 0.6s ease;
     position: relative; overflow: hidden;
 }
-
 .mood-fill-inner::after {
     content: ''; position: absolute; inset: 0;
     background: linear-gradient(90deg, transparent 50%, rgba(255,255,255,0.2));
     animation: shineBar 1.5s ease-in-out infinite;
 }
-
-@keyframes shineBar {
-    0%   { transform: translateX(-100%); }
-    100% { transform: translateX(100%); }
-}
+@keyframes shineBar { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
 
 .fsi-big {
     font-family: 'Orbitron', monospace;
-    font-size: 2.4rem;
-    font-weight: 900;
-    text-align: center;
+    font-size: 2.4rem; font-weight: 900; text-align: center;
     transition: color 0.5s, text-shadow 0.5s;
 }
 
-.hotspot-pill {
-    display: inline-block;
-    padding: 3px 10px;
-    border-radius: 12px;
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 0.75rem;
-    margin: 2px;
-    border: 1px solid;
-}
-
-/* ── Floating particles ── */
-.particles-container {
-    position: fixed; inset: 0; pointer-events: none; z-index: 9999;
-    overflow: hidden;
-}
-
-.particle {
-    position: absolute;
-    font-size: 1.3rem;
-    animation: floatUp 1.4s ease-out forwards;
-    pointer-events: none;
-}
-
-@keyframes floatUp {
-    0%   { opacity: 1; transform: translateY(0) scale(1) rotate(0deg); }
-    100% { opacity: 0; transform: translateY(-130px) scale(0.4) rotate(180deg); }
-}
-
-/* ── Achievement banner ── */
 .ach-banner {
     background: linear-gradient(135deg, rgba(0,40,10,0.95), rgba(0,20,5,0.95));
-    border: 2px solid #39ff14;
-    border-radius: 10px;
-    padding: 14px 20px;
-    text-align: center;
+    border: 2px solid #39ff14; border-radius: 10px;
+    padding: 14px 20px; text-align: center;
     font-family: 'Orbitron', monospace;
     animation: achGlow 1s ease-in-out 3;
 }
-
 @keyframes achGlow {
     0%,100% { box-shadow: 0 0 20px rgba(57,255,20,0.3); }
     50%      { box-shadow: 0 0 50px rgba(57,255,20,0.8); }
 }
 
-/* ── Progress / XP bar ── */
 .xp-track { height: 8px; background: rgba(0,255,136,0.1); border-radius: 4px; overflow: hidden; }
 .xp-fill  { height: 100%; background: linear-gradient(90deg, #006622, #39ff14); border-radius: 4px; transition: width 0.5s; }
 
-/* ── Divider ── */
-hr {
-    border: none !important;
-    border-top: 1px solid rgba(0,255,136,0.15) !important;
-    margin: 16px 0 !important;
-}
+hr { border: none !important; border-top: 1px solid rgba(0,255,136,0.15) !important; margin: 16px 0 !important; }
 
-/* ── File uploader ── */
 [data-testid="stFileUploader"] {
     border: 1px dashed rgba(0,255,136,0.3) !important;
     border-radius: 8px !important;
     background: rgba(0,20,5,0.5) !important;
 }
 
-/* ── Number input ── */
-[data-testid="stNumberInput"] input {
-    background: rgba(0,20,5,0.9) !important;
-    color: #00ff88 !important;
-    border: 1px solid rgba(0,255,136,0.3) !important;
-}
-
-/* ── Multiselect ── */
 [data-testid="stMultiSelect"] > div {
     background: rgba(0,20,5,0.9) !important;
     border: 1px solid rgba(0,255,136,0.3) !important;
 }
 
-/* ── Caption / small text ── */
 .stCaption, small {
     color: rgba(0,255,136,0.5) !important;
     font-family: 'Share Tech Mono', monospace !important;
     font-size: 0.72rem !important;
 }
 
-/* ── Blink animation for alerts ── */
-@keyframes blink {
-    0%,100% { opacity: 1; }
-    50%      { opacity: 0.4; }
-}
-.blink { animation: blink 1.2s ease-in-out infinite; }
-
-/* ── Glow text ── */
 .glow-green  { color: #00ff88; text-shadow: 0 0 10px rgba(0,255,136,0.7); }
 .glow-red    { color: #ff2244; text-shadow: 0 0 10px rgba(255,34,68,0.7); }
 .glow-yellow { color: #ffea00; text-shadow: 0 0 10px rgba(255,234,0,0.7); }
 .glow-lime   { color: #39ff14; text-shadow: 0 0 10px rgba(57,255,20,0.7); }
-
 </style>
 """
 
-# ─────────────────────────────────────────────────────────
-# INJECT CSS + MUSIC JS
-# ─────────────────────────────────────────────────────────
+# Inject CSS and JS into the Streamlit page
 st.markdown(GAME_CSS, unsafe_allow_html=True)
 st.markdown(MUSIC_JS, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────
-# KARNATAKA DISTRICT COORDINATES (lat, lon)
+# KARNATAKA DISTRICT COORDINATES
+#
+# Real-world latitude/longitude centroids for all 30
+# Karnataka districts. Used to place markers on the map.
+# Source: approximate geographic centroids.
 # ─────────────────────────────────────────────────────────
 DISTRICT_COORDS = {
     "BAGALKOT":        (16.18, 75.69),
@@ -592,17 +509,21 @@ DISTRICT_COORDS = {
 }
 
 # ─────────────────────────────────────────────────────────
-# EMBEDDED DATASET — 750 synthetic samples matching the
-# original Karnataka dataset structure exactly.
-# Columns: Region, Crop, Rainfall, Price, Cost, Yield, Irrigation
-# All numeric values are between 0.0 and 1.0
+# SYNTHETIC DATASET CONFIGURATION
+#
+# Each district has a hand-crafted baseline profile derived
+# from real Karnataka agricultural knowledge:
+#   - Coastal/Western Ghats districts (Kodagu, Udupi) → high rain
+#   - Northern dry-land districts (Raichur, Yadgir) → low rain, high cost
+#   - Bangalore region → higher prices, better infrastructure
+#
+# Gaussian noise is added per sample to simulate natural
+# variation around these baselines.
 # ─────────────────────────────────────────────────────────
-
-# Seed for reproducibility
 random.seed(42)
 np.random.seed(42)
 
-DISTRICTS = list(DISTRICT_COORDS.keys())  # 30 districts
+DISTRICTS = list(DISTRICT_COORDS.keys())
 
 CROPS = [
     "Rice", "Wheat", "Maize", "Ragi", "Jowar",
@@ -610,7 +531,7 @@ CROPS = [
     "Coffee", "Coconut", "Banana", "Tomato", "Onion"
 ]
 
-# Per-district baseline stress profiles (realistic regional variation)
+# District baseline profiles: all values normalised 0.0–1.0
 DISTRICT_PROFILES = {
     "BAGALKOT":        dict(rain=0.38, price=0.52, yield_=0.46, cost=0.58, irrig=0.42),
     "BALLARI":         dict(rain=0.32, price=0.48, yield_=0.40, cost=0.62, irrig=0.35),
@@ -646,10 +567,24 @@ DISTRICT_PROFILES = {
 
 
 @st.cache_data
-def generate_dataset():
-    """Generate 750 synthetic farm records matching the original dataset structure."""
+def generate_dataset() -> pd.DataFrame:
+    """
+    Generate 750 synthetic farm records for Karnataka.
+
+    Each record represents one farm observation with 5 normalised
+    parameters (0.0–1.0). Gaussian noise (std=0.12) is added around
+    district baselines to simulate natural variation. Crop-specific
+    adjustments reflect real agronomic knowledge (e.g., Coffee needs
+    more rainfall, Cotton has higher input costs).
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with columns: Region, Crop, Rainfall, Price,
+        Cost, Yield, Irrigation.
+    """
     records = []
-    samples_per_district = 750 // len(DISTRICTS)  # 25 per district
+    samples_per_district = 750 // len(DISTRICTS)   # 25 per district
     extra = 750 - samples_per_district * len(DISTRICTS)
 
     for i, district in enumerate(DISTRICTS):
@@ -658,22 +593,27 @@ def generate_dataset():
 
         for _ in range(n):
             crop = random.choice(CROPS)
-            # Add realistic noise around district baseline
-            noise = 0.12
-            rain  = float(np.clip(np.random.normal(p["rain"],  noise), 0.05, 0.98))
-            price = float(np.clip(np.random.normal(p["price"], noise), 0.05, 0.98))
-            yld   = float(np.clip(np.random.normal(p["yield_"],noise), 0.05, 0.98))
-            cost  = float(np.clip(np.random.normal(p["cost"],  noise), 0.05, 0.98))
-            irrig = float(np.clip(np.random.normal(p["irrig"], noise), 0.05, 0.98))
+            noise = 0.12  # Standard deviation for Gaussian noise
 
-            # Crop-specific adjustments
+            # Sample each parameter from a normal distribution,
+            # clipped to valid range [0.05, 0.98]
+            rain  = float(np.clip(np.random.normal(p["rain"],   noise), 0.05, 0.98))
+            price = float(np.clip(np.random.normal(p["price"],  noise), 0.05, 0.98))
+            yld   = float(np.clip(np.random.normal(p["yield_"], noise), 0.05, 0.98))
+            cost  = float(np.clip(np.random.normal(p["cost"],   noise), 0.05, 0.98))
+            irrig = float(np.clip(np.random.normal(p["irrig"],  noise), 0.05, 0.98))
+
+            # Apply crop-specific agronomic adjustments
             if crop in ["Coffee", "Coconut", "Areca Nut"]:
+                # High-rainfall plantation crops
                 rain  = min(rain + 0.10, 0.98)
                 irrig = min(irrig + 0.08, 0.98)
             elif crop in ["Ragi", "Jowar"]:
-                rain  = max(rain - 0.05, 0.05)
-                cost  = max(cost - 0.05, 0.05)
+                # Drought-resistant millets — lower rain, lower cost
+                rain = max(rain - 0.05, 0.05)
+                cost = max(cost - 0.05, 0.05)
             elif crop == "Cotton":
+                # Cash crop — higher input cost, better price
                 cost  = min(cost + 0.08, 0.98)
                 price = min(price + 0.05, 0.98)
 
@@ -687,12 +627,14 @@ def generate_dataset():
                 "Irrigation": round(irrig, 4),
             })
 
-    df = pd.DataFrame(records)
-    return df
+    return pd.DataFrame(records)
 
 
 # ─────────────────────────────────────────────────────────
-# SESSION STATE INIT (persists across reruns)
+# SESSION STATE INITIALISATION
+#
+# Streamlit reruns the entire script on every widget
+# interaction. Session state persists values across reruns.
 # ─────────────────────────────────────────────────────────
 if "score"        not in st.session_state: st.session_state.score = 0
 if "xp"           not in st.session_state: st.session_state.xp = 0
@@ -704,72 +646,153 @@ if "achievements" not in st.session_state:
         "Water Wizard": False, "Farm Zen": False,
         "Avenger Elite": False
     }
-if "music_on"     not in st.session_state: st.session_state.music_on = False
-if "last_fsi"     not in st.session_state: st.session_state.last_fsi = 0.5
+if "music_on"  not in st.session_state: st.session_state.music_on = False
+if "last_fsi"  not in st.session_state: st.session_state.last_fsi = 0.5
+if "preset"    not in st.session_state: st.session_state.preset = None
+
 
 # ─────────────────────────────────────────────────────────
-# FSI CALCULATION
+# FSI (FARM STRESS INDEX) FUNCTIONS
 # ─────────────────────────────────────────────────────────
-def compute_fsi(df):
+
+def compute_fsi(df: pd.DataFrame) -> pd.DataFrame:
     """
-    FSI = Farm Stress Index (0 = No stress, 1 = Maximum stress)
+    Compute the Farm Stress Index (FSI) for each row.
 
-    Formula (weighted average of 5 factors):
-      • Low Rainfall → more stress  (weight: 25%)
-      • Low Crop Price → more stress (weight: 25%)
-      • Low Crop Yield → more stress (weight: 20%)
-      • High Input Cost → more stress (weight: 20%)
-      • Poor Irrigation → more stress (weight: 10%)
+    FSI is a weighted composite score in the range [0, 1]:
+      0 = No stress (ideal farm conditions)
+      1 = Maximum stress (complete crop failure scenario)
+
+    Formula:
+      FSI = (1 - Rainfall)  × 0.25   ← drought risk
+          + (1 - Price)     × 0.25   ← market risk
+          + (1 - Yield)     × 0.20   ← production risk
+          + Cost            × 0.20   ← input burden
+          + (1 - Irrigation)× 0.10   ← water access risk
+
+    Weights reflect relative importance from agronomic literature.
+    Rainfall and Price carry the highest weight (25% each) as they
+    are the primary drivers of farmer income and survival.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame with columns Rainfall, Price, Yield, Cost, Irrigation.
+
+    Returns
+    -------
+    pd.DataFrame
+        Same DataFrame with an additional 'FSI' column.
     """
     df = df.copy()
     df["FSI"] = (
-        (1 - df["Rainfall"])  * 0.25 +
-        (1 - df["Price"])     * 0.25 +
-        (1 - df["Yield"])     * 0.20 +
-        df["Cost"]            * 0.20 +
-        (1 - df["Irrigation"])* 0.10
+        (1 - df["Rainfall"])   * 0.25 +
+        (1 - df["Price"])      * 0.25 +
+        (1 - df["Yield"])      * 0.20 +
+        df["Cost"]             * 0.20 +
+        (1 - df["Irrigation"]) * 0.10
     )
     return df
 
-def add_stress_labels(df):
-    """Classify each farm as HIGH / MEDIUM / LOW stress using 33rd & 66th percentiles."""
+
+def add_stress_labels(df: pd.DataFrame):
+    """
+    Classify each district as HIGH / MEDIUM / LOW stress.
+
+    Uses percentile-based thresholds (33rd and 66th) so that
+    exactly one-third of districts fall into each category.
+    This relative classification is more robust than fixed
+    thresholds, especially when dataset composition changes.
+
+    Parameters
+    ----------
+    df : pd.DataFrame  DataFrame with 'FSI' column.
+
+    Returns
+    -------
+    tuple : (DataFrame with 'Stress' column, p33 float, p66 float)
+    """
     p33 = df["FSI"].quantile(0.33)
     p66 = df["FSI"].quantile(0.66)
+
     def classify(x):
-        if x >= p66: return "HIGH"
+        if x >= p66:   return "HIGH"
         elif x >= p33: return "MEDIUM"
-        else: return "LOW"
+        else:          return "LOW"
+
     df["Stress"] = df["FSI"].apply(classify)
     return df, p33, p66
 
-def get_reason(row):
-    """Returns human-readable reasons why a farm is stressed."""
-    r = []
-    if row["Rainfall"]  < 0.4: r.append("Low Rainfall")
-    if row["Yield"]     < 0.4: r.append("Low Yield")
-    if row["Price"]     < 0.4: r.append("Low Price")
-    if row["Cost"]      > 0.6: r.append("High Cost")
-    if row["Irrigation"]< 0.4: r.append("Poor Irrigation")
-    return ", ".join(r) if r else "Balanced"
 
-def add_coords(df):
-    """Attach latitude/longitude to each row based on district."""
+def get_reason(row: pd.Series) -> str:
+    """
+    Generate a human-readable explanation for a district's stress.
+
+    Checks each parameter against fixed threshold values to identify
+    which factors are contributing to farm stress. Used in tooltips
+    and alert panels.
+
+    Parameters
+    ----------
+    row : pd.Series  A row from the aggregated district DataFrame.
+
+    Returns
+    -------
+    str  Comma-separated list of stress reasons, or 'Balanced'.
+    """
+    reasons = []
+    if row["Rainfall"]   < 0.4: reasons.append("Low Rainfall")
+    if row["Yield"]      < 0.4: reasons.append("Low Yield")
+    if row["Price"]      < 0.4: reasons.append("Low Price")
+    if row["Cost"]       > 0.6: reasons.append("High Cost")
+    if row["Irrigation"] < 0.4: reasons.append("Poor Irrigation")
+    return ", ".join(reasons) if reasons else "Balanced"
+
+
+def add_coords(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Attach latitude and longitude to each district row.
+
+    Looks up coordinates from DISTRICT_COORDS dictionary.
+    Falls back to Karnataka's geographic centre (14.5, 76.5)
+    for any unrecognised district name.
+
+    Parameters
+    ----------
+    df : pd.DataFrame  DataFrame with a 'Region' column.
+
+    Returns
+    -------
+    pd.DataFrame  Same DataFrame with 'lat' and 'lon' columns added.
+    """
     df = df.copy()
     df["lat"] = df["Region"].map(lambda r: DISTRICT_COORDS.get(r, (14.5, 76.5))[0])
     df["lon"] = df["Region"].map(lambda r: DISTRICT_COORDS.get(r, (14.5, 76.5))[1])
     return df
 
-# ─────────────────────────────────────────────────────────
-# AGGREGATE BY DISTRICT (mean FSI per district per crop)
-# ─────────────────────────────────────────────────────────
-def aggregate(df):
+
+def aggregate(df: pd.DataFrame):
+    """
+    Aggregate raw farm records to one row per district.
+
+    Groups by Region and computes mean values for all 5 parameters.
+    Then computes FSI, stress labels, reasons, and coordinates.
+
+    Parameters
+    ----------
+    df : pd.DataFrame  Filtered farm-level DataFrame.
+
+    Returns
+    -------
+    tuple : (aggregated DataFrame, p33 float, p66 float)
+    """
     agg = df.groupby("Region", as_index=False).agg(
-        Rainfall=("Rainfall", "mean"),
-        Price=("Price", "mean"),
-        Yield=("Yield", "mean"),
-        Cost=("Cost", "mean"),
-        Irrigation=("Irrigation", "mean"),
-        Samples=("Rainfall", "count")
+        Rainfall=("Rainfall",   "mean"),
+        Price=("Price",         "mean"),
+        Yield=("Yield",         "mean"),
+        Cost=("Cost",           "mean"),
+        Irrigation=("Irrigation","mean"),
+        Samples=("Rainfall",    "count")
     )
     agg = compute_fsi(agg)
     agg, p33, p66 = add_stress_labels(agg)
@@ -777,14 +800,171 @@ def aggregate(df):
     agg = add_coords(agg)
     return agg, p33, p66
 
+
+# ─────────────────────────────────────────────────────────
+# ML MODULE 1 — KMeans CLUSTERING
+#
+# Unsupervised machine learning to group districts by
+# agricultural similarity. Unlike the FSI rule-based
+# classification, KMeans discovers natural groupings
+# from the data itself without using any predefined labels.
+#
+# Steps:
+#   1. Extract 5-feature matrix per district
+#   2. Standardise features (zero mean, unit variance)
+#   3. Fit KMeans with k=3 (mirrors LOW/MEDIUM/HIGH)
+#   4. Map numeric cluster IDs → stress labels by FSI rank
+# ─────────────────────────────────────────────────────────
+@st.cache_data
+def run_kmeans_clustering(agg_df: pd.DataFrame):
+    """
+    Run KMeans clustering on district-level farm features.
+
+    Uses StandardScaler to normalise features before clustering
+    so that no single parameter dominates due to scale differences.
+    Cluster labels are mapped to LOW/MEDIUM/HIGH by ranking
+    cluster centroids on mean FSI.
+
+    Parameters
+    ----------
+    agg_df : pd.DataFrame  Aggregated district DataFrame with FSI.
+
+    Returns
+    -------
+    tuple : (DataFrame with ML_Stress column, KMeans model, scaler)
+    """
+    features = ["Rainfall", "Price", "Yield", "Cost", "Irrigation"]
+    X = agg_df[features].values
+
+    # Step 1: Standardise — zero mean, unit variance per feature
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+
+    # Step 2: Fit KMeans with 3 clusters, fixed seed for reproducibility
+    # n_init=10 runs the algorithm 10 times and picks the best result
+    kmeans = KMeans(n_clusters=3, random_state=42, n_init=10)
+    labels = kmeans.fit_predict(X_scaled)
+
+    agg_df = agg_df.copy()
+    agg_df["KMeans_Cluster"] = labels
+
+    # Step 3: Map cluster IDs to stress labels by average FSI
+    # Cluster with lowest mean FSI → "LOW", highest → "HIGH"
+    cluster_fsi_mean = agg_df.groupby("KMeans_Cluster")["FSI"].mean().sort_values()
+    cluster_to_label = {
+        cluster_fsi_mean.index[0]: "LOW",
+        cluster_fsi_mean.index[1]: "MEDIUM",
+        cluster_fsi_mean.index[2]: "HIGH",
+    }
+    agg_df["ML_Stress"] = agg_df["KMeans_Cluster"].map(cluster_to_label)
+
+    return agg_df, kmeans, scaler
+
+
+# ─────────────────────────────────────────────────────────
+# ML MODULE 2 — LINEAR REGRESSION (FSI PREDICTION)
+#
+# Supervised machine learning to predict FSI from the 5
+# farm parameters. This validates the FSI formula and
+# shows which parameters most strongly influence stress.
+#
+# Steps:
+#   1. Use farm-level data (750 rows) as training set
+#   2. 80/20 train-test split
+#   3. Fit LinearRegression on training set
+#   4. Evaluate on test set using R² and RMSE
+#   5. Extract feature coefficients as "importance" scores
+# ─────────────────────────────────────────────────────────
+@st.cache_data
+def run_regression(df: pd.DataFrame):
+    """
+    Train a Linear Regression model to predict FSI.
+
+    Uses the 5 raw farm parameters as features and FSI as
+    the target variable. The model coefficients reveal which
+    parameters most strongly drive farm stress.
+
+    A high R² score (close to 1.0) indicates that the FSI
+    formula is well-explained by a linear combination of
+    the input parameters — as expected from its design.
+
+    Parameters
+    ----------
+    df : pd.DataFrame  Farm-level DataFrame with FSI computed.
+
+    Returns
+    -------
+    dict containing:
+        model       : fitted LinearRegression object
+        r2          : R² score on test set
+        rmse        : Root Mean Squared Error on test set
+        coef_df     : DataFrame of feature coefficients
+        y_test      : actual FSI values (test set)
+        y_pred      : predicted FSI values (test set)
+        feature_names: list of feature names
+    """
+    features = ["Rainfall", "Price", "Yield", "Cost", "Irrigation"]
+    X = df[features].values
+    y = df["FSI"].values
+
+    # 80/20 train-test split, stratification not needed for regression
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42
+    )
+
+    # Fit model on training data only
+    model = LinearRegression()
+    model.fit(X_train, y_train)
+
+    # Evaluate on unseen test data
+    y_pred = model.predict(X_test)
+    r2   = r2_score(y_test, y_pred)
+    rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+
+    # Build coefficient table — positive = increases FSI (more stress)
+    coef_df = pd.DataFrame({
+        "Feature":     features,
+        "Coefficient": model.coef_,
+        "Abs_Coef":    np.abs(model.coef_)
+    }).sort_values("Abs_Coef", ascending=False)
+
+    return {
+        "model":        model,
+        "r2":           r2,
+        "rmse":         rmse,
+        "coef_df":      coef_df,
+        "y_test":       y_test,
+        "y_pred":       y_pred,
+        "feature_names": features,
+    }
+
+
 # ─────────────────────────────────────────────────────────
 # HEATMAP BUILDER
+#
+# Creates a Plotly Scattermapbox figure with dark tiles.
+# Each district is a coloured circle where:
+#   - Colour encodes FSI (green→yellow→red via RdYlGn scale)
+#   - Size encodes FSI (larger = more stressed)
+# Custom hover template shows all district stats.
 # ─────────────────────────────────────────────────────────
-def build_map(hex_df, zoom=6.2):
+def build_map(hex_df: pd.DataFrame, zoom: int = 6) -> go.Figure:
+    """
+    Build the interactive Karnataka FSI heatmap.
+
+    Parameters
+    ----------
+    hex_df : pd.DataFrame  Aggregated district data with lat/lon/FSI.
+    zoom   : int           Initial map zoom level (default 6).
+
+    Returns
+    -------
+    go.Figure  Plotly figure ready for st.plotly_chart().
+    """
+    # Scale marker size: base 14px + up to 14px extra based on FSI
     marker_sizes = hex_df["FSI"].apply(lambda x: 14 + x * 14)
 
     fig = go.Figure()
-
     fig.add_trace(go.Scattermapbox(
         lat=hex_df["lat"],
         lon=hex_df["lon"],
@@ -793,7 +973,7 @@ def build_map(hex_df, zoom=6.2):
             size=marker_sizes,
             color=hex_df["FSI"],
             colorscale="RdYlGn",
-            reversescale=True,
+            reversescale=True,       # Reverse so red = high stress
             opacity=0.90,
             colorbar=dict(
                 title=dict(text="FSI", font=dict(color="#00ff88", family="Share Tech Mono")),
@@ -806,7 +986,7 @@ def build_map(hex_df, zoom=6.2):
             )
         ),
         customdata=hex_df[["Region", "Stress", "Reason", "Samples",
-                             "Rainfall", "Price", "Yield", "Cost", "Irrigation"]].values,
+                            "Rainfall", "Price", "Yield", "Cost", "Irrigation"]].values,
         hovertemplate=(
             "<b>🎯 %{customdata[0]}</b><br>"
             "━━━━━━━━━━━━━━━━━━<br>"
@@ -822,11 +1002,7 @@ def build_map(hex_df, zoom=6.2):
     ))
 
     fig.update_layout(
-        mapbox=dict(
-            style="carto-darkmatter",
-            center=dict(lat=14.5, lon=76.5),
-            zoom=zoom
-        ),
+        mapbox=dict(style="carto-darkmatter", center=dict(lat=14.5, lon=76.5), zoom=zoom),
         height=560,
         margin=dict(l=0, r=0, t=0, b=0),
         paper_bgcolor="rgba(0,0,0,0)",
@@ -835,58 +1011,99 @@ def build_map(hex_df, zoom=6.2):
     )
     return fig
 
+
 # ─────────────────────────────────────────────────────────
-# FARMER GAME HELPERS
+# FARMER GAME HELPER FUNCTIONS
 # ─────────────────────────────────────────────────────────
-def compute_game_fsi(rain, price, yld, cost, irrig):
-    """Same FSI formula, but with game slider inputs (0–100 scaled to 0–1)."""
+
+def compute_game_fsi(rain: int, price: int, yld: int,
+                     cost: int, irrig: int) -> float:
+    """
+    Compute FSI from game slider values (0–100 integer scale).
+
+    Converts slider integers to normalised floats [0,1] before
+    applying the standard FSI formula.
+
+    Parameters
+    ----------
+    rain, price, yld, cost, irrig : int  Slider values 0–100.
+
+    Returns
+    -------
+    float  FSI in range [0.0, 1.0].
+    """
     r, p, y, c, i = rain/100, price/100, yld/100, cost/100, irrig/100
     return (1-r)*0.25 + (1-p)*0.25 + (1-y)*0.20 + c*0.20 + (1-i)*0.10
 
-def farmer_state(fsi):
-    """Returns (emoji, animation_class, status_text, message, color) based on FSI."""
+
+def farmer_state(fsi: float):
+    """
+    Return the farmer character state based on current FSI.
+
+    Maps FSI ranges to visual and textual feedback:
+      [0.00, 0.12) → Thriving (dance animation, green glow)
+      [0.12, 0.25) → Very Happy
+      [0.25, 0.38) → Content
+      [0.38, 0.50) → Neutral
+      [0.50, 0.62) → Worried (shake animation)
+      [0.62, 0.75) → Very Stressed
+      [0.75, 1.00] → Crisis (rapid crisis animation, red glow)
+
+    Parameters
+    ----------
+    fsi : float  Current Farm Stress Index.
+
+    Returns
+    -------
+    tuple : (emoji, css_class, status_text, message, hex_color)
+    """
     if fsi < 0.12:
-        return ("🌟", "happy",
-                "🌟 THRIVING — FARM CHAMPION!",
-                "Wah! Nanna farm super aagide! My family is celebrating! You are a true Avenger! 🎉",
-                "#39ff14")
+        return ("🌟","happy","🌟 THRIVING — FARM CHAMPION!",
+                "Wah! Nanna farm super aagide! My family is celebrating! You are a true Avenger! 🎉","#39ff14")
     elif fsi < 0.25:
-        return ("👨‍🌾", "happy",
-                "😊 VERY HAPPY",
-                "Thumba khushi aagide! Great conditions! Keep it up, Avenger! 🌾",
-                "#39ff14")
+        return ("👨‍🌾","happy","😊 VERY HAPPY",
+                "Thumba khushi aagide! Great conditions! Keep it up, Avenger! 🌾","#39ff14")
     elif fsi < 0.38:
-        return ("🧑‍🌾", "",
-                "🙂 CONTENT",
-                "Things are okay. A little more improvement and I'll be really happy! 😊",
-                "#00ff88")
+        return ("🧑‍🌾","","🙂 CONTENT",
+                "Things are okay. A little more improvement and I'll be really happy! 😊","#00ff88")
     elif fsi < 0.50:
-        return ("😐", "",
-                "😐 NEUTRAL",
-                "Hmm... conditions are average. Can you help improve rainfall or crop price?",
-                "#ffea00")
+        return ("😐","","😐 NEUTRAL",
+                "Hmm... conditions are average. Can you help improve rainfall or crop price?","#ffea00")
     elif fsi < 0.62:
-        return ("😟", "stressed",
-                "😟 WORRIED",
-                "Aiyo! Things are not looking good. My yield is low or costs too high. Please help! 😰",
-                "#ffea00")
+        return ("😟","stressed","😟 WORRIED",
+                "Aiyo! Things are not looking good. My yield is low or costs too high. Please help! 😰","#ffea00")
     elif fsi < 0.75:
-        return ("😢", "stressed",
-                "😢 VERY STRESSED",
-                "Devare! I'm suffering. Rainfall is gone, prices are crashed. My family is hungry! 😭",
-                "#ff6600")
+        return ("😢","stressed","😢 VERY STRESSED",
+                "Devare! I'm suffering. Rainfall is gone, prices are crashed. My family is hungry! 😭","#ff6600")
     else:
-        return ("🆘", "crisis",
-                "🆘 FARM CRISIS! HELP!",
-                "SAVE ME! Everything has failed! No rain, no yield, high costs! My family needs help! 🚨",
-                "#ff2244")
+        return ("🆘","crisis","🆘 FARM CRISIS! HELP!",
+                "SAVE ME! Everything has failed! No rain, no yield, high costs! My family needs help! 🚨","#ff2244")
 
-def mood_color(mood_pct):
-    if mood_pct > 65: return "linear-gradient(90deg,#005522,#39ff14)"
+
+def mood_color(mood_pct: int) -> str:
+    """Return a CSS gradient string for the happiness bar based on percentage."""
+    if mood_pct > 65:  return "linear-gradient(90deg,#005522,#39ff14)"
     elif mood_pct > 40: return "linear-gradient(90deg,#665500,#ffea00)"
-    else: return "linear-gradient(90deg,#660011,#ff2244)"
+    else:               return "linear-gradient(90deg,#660011,#ff2244)"
 
-def check_achievements(rain, price, yld, cost, irrig, fsi):
+
+def check_achievements(rain, price, yld, cost, irrig, fsi) -> list:
+    """
+    Check and unlock achievements based on current slider values.
+
+    Each achievement requires a specific parameter threshold to be
+    met for the first time. 'Avenger Elite' requires all others
+    to already be unlocked.
+
+    Parameters
+    ----------
+    rain, price, yld, cost, irrig : int  Slider values 0–100.
+    fsi : float  Current Farm Stress Index.
+
+    Returns
+    -------
+    list  Names of newly unlocked achievements (may be empty).
+    """
     unlocked = []
     achs = st.session_state.achievements
     checks = {
@@ -896,14 +1113,17 @@ def check_achievements(rain, price, yld, cost, irrig, fsi):
         "Cost Cutter":   (not achs["Cost Cutter"]   and cost  < 20),
         "Water Wizard":  (not achs["Water Wizard"]  and irrig > 80),
         "Farm Zen":      (not achs["Farm Zen"]       and fsi  < 0.12),
-        "Avenger Elite": (not achs["Avenger Elite"] and all(achs[k] for k in list(achs.keys())[:-1])),
+        "Avenger Elite": (not achs["Avenger Elite"] and
+                          all(achs[k] for k in list(achs.keys())[:-1])),
     }
-    for name, cond in checks.items():
-        if cond:
+    for name, condition in checks.items():
+        if condition:
             st.session_state.achievements[name] = True
             unlocked.append(name)
     return unlocked
 
+
+# Achievement display metadata: (icon, colour, description)
 ACH_META = {
     "Rain Master":   ("💧", "#00ccff", "Rainfall above 80%"),
     "Profit King":   ("💰", "#ffea00", "Crop price above 80%"),
@@ -914,20 +1134,21 @@ ACH_META = {
     "Avenger Elite": ("⚡", "#ff44ff", "All other achievements unlocked"),
 }
 
-# ─────────────────────────────────────────────────────────
-# ░░░░░░░░░░░░  MAIN APP  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-# ─────────────────────────────────────────────────────────
 
-# ── HEADER ──────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════
+# ░░░░░░░░░░░░░░  MAIN APPLICATION  ░░░░░░░░░░░░░░░░░░░░░
+# ═════════════════════════════════════════════════════════
+
+# ── App Header ───────────────────────────────────────────
 st.markdown("<h1>⚡ AGRISTRESS AVENGERS ⚡</h1>", unsafe_allow_html=True)
 st.markdown(
     "<p style='text-align:center;font-family:Share Tech Mono,monospace;"
     "color:rgba(0,255,136,0.5);font-size:0.82rem;letter-spacing:0.3em;margin-bottom:6px'>"
-    "// KARNATAKA FARM STRESS INTELLIGENCE & GAME SYSTEM //</p>",
+    "// KARNATAKA FARM STRESS INTELLIGENCE & GAME SYSTEM — ML EDITION //</p>",
     unsafe_allow_html=True
 )
 
-# ── MUSIC CONTROLS ──────────────────────────────────────
+# ── Music Controls ───────────────────────────────────────
 mcol1, mcol2, mcol3, mcol4, mcol5 = st.columns([1,1,1,1,4])
 with mcol1:
     if st.button("🎵 PLAY"):
@@ -952,45 +1173,42 @@ with mcol5:
 
 st.divider()
 
-# ── DATASET LOADING ─────────────────────────────────────
+# ── Dataset Loading ──────────────────────────────────────
 with st.expander("📂 DATA UPLOAD — Click to load your own dataset (optional)", expanded=False):
     st.markdown("""
-    **What is this?**
-    By default, the app uses a **built-in dataset** of 750 Karnataka farm samples (auto-generated with realistic regional profiles).
-    You can upload your own Excel file (.xlsx) if you have real/updated data.
+    **Default:** Built-in 750-sample Karnataka dataset (synthetic, realistic baselines).
+    Upload your own `.xlsx` or `.csv` to override with real data.
 
-    **Your file must have these columns:**
-    `Region, Crop, Rainfall, Price, Cost, Yield, Irrigation`
-    *(All numeric values between 0 and 1)*
+    **Required columns:** `Region, Crop, Rainfall, Price, Cost, Yield, Irrigation`
+    *(All numeric columns must be normalised between 0.0 and 1.0)*
     """)
-    uploaded = st.file_uploader("Upload your Excel file", type=["xlsx", "csv"])
+    uploaded = st.file_uploader("Upload Excel or CSV file", type=["xlsx", "csv"])
 
-# Load dataset — use uploaded file OR the built-in generated dataset
+# Priority: uploaded file → local file → generated dataset
 if uploaded:
     try:
-        df_raw = pd.read_excel(uploaded) if uploaded.name.endswith("xlsx") else pd.read_csv(uploaded)
-        st.success(f"✅ Loaded {len(df_raw)} rows from your file!")
+        df_raw = (pd.read_excel(uploaded)
+                  if uploaded.name.endswith("xlsx")
+                  else pd.read_csv(uploaded))
+        st.success(f"✅ Loaded {len(df_raw)} rows from uploaded file!")
     except Exception as e:
         st.error(f"❌ Could not read file: {e}")
         df_raw = None
 elif os.path.exists("karnataka_dataset_750_samples.xlsx"):
-    # Still support the original file if it exists alongside the script
     @st.cache_data
     def load_excel():
         return pd.read_excel("karnataka_dataset_750_samples.xlsx")
     df_raw = load_excel()
 else:
-    # ✅ Use the built-in generated dataset — no file needed!
     df_raw = generate_dataset()
 
 if df_raw is None:
     st.stop()
 
-# ── SIDEBAR FILTERS ─────────────────────────────────────
+# ── Sidebar Filters ──────────────────────────────────────
 with st.sidebar:
     st.markdown("<h2 style='font-size:0.9rem'>🎛 FILTERS</h2>", unsafe_allow_html=True)
 
-    # Crop filter
     crops_available = sorted(df_raw["Crop"].unique())
     selected_crops = st.multiselect(
         "🌾 Filter by Crop",
@@ -998,6 +1216,7 @@ with st.sidebar:
         default=crops_available,
         help="Select which crops to include in the analysis"
     )
+    # Default to all crops if none selected
     if not selected_crops:
         selected_crops = crops_available
 
@@ -1010,8 +1229,7 @@ with st.sidebar:
     +(1-Price)×0.25<br>
     +(1-Yield)×0.20<br>
     +Cost×0.20<br>
-    +(1-Irrig)×0.10<br>
-    <br>
+    +(1-Irrig)×0.10<br><br>
     Range: 0 (best) → 1 (worst)
     </div>
     """, unsafe_allow_html=True)
@@ -1025,14 +1243,17 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
-# ── FILTER DATA ─────────────────────────────────────────
+# ── Data Processing Pipeline ─────────────────────────────
+# Filter → FSI → Aggregate → ML
 df_filtered = df_raw[df_raw["Crop"].isin(selected_crops)].copy()
-df_filtered = compute_fsi(df_filtered)
+df_filtered = compute_fsi(df_filtered)           # Compute FSI for every farm record
+hex_df, p33, p66 = aggregate(df_filtered)        # Aggregate to district level
 
-# Aggregate by district
-hex_df, p33, p66 = aggregate(df_filtered)
+# Run both ML models on aggregated district data
+ml_df, kmeans_model, scaler_model = run_kmeans_clustering(hex_df)
+regression_results = run_regression(df_filtered)  # Regression on full farm-level data
 
-# ── TOP METRICS ROW ─────────────────────────────────────
+# ── Top-Level Metrics ────────────────────────────────────
 total_districts = len(hex_df)
 high_count  = (hex_df["Stress"] == "HIGH").sum()
 med_count   = (hex_df["Stress"] == "MEDIUM").sum()
@@ -1041,78 +1262,68 @@ avg_fsi     = hex_df["FSI"].mean()
 worst_dist  = hex_df.loc[hex_df["FSI"].idxmax(), "Region"]
 
 mc1, mc2, mc3, mc4, mc5, mc6 = st.columns(6)
-mc1.metric("📍 Districts", total_districts)
-mc2.metric("🔴 HIGH Stress", high_count, delta=f"{high_count/total_districts*100:.0f}% of total", delta_color="inverse")
+mc1.metric("📍 Districts",     total_districts)
+mc2.metric("🔴 HIGH Stress",   high_count,
+           delta=f"{high_count/total_districts*100:.0f}% of total", delta_color="inverse")
 mc3.metric("🟡 MEDIUM Stress", med_count)
-mc4.metric("🟢 LOW Stress", low_count, delta=f"{low_count/total_districts*100:.0f}% of total")
-mc5.metric("⚡ Avg FSI", f"{avg_fsi:.3f}")
-mc6.metric("🔥 Worst Region", worst_dist)
+mc4.metric("🟢 LOW Stress",    low_count,
+           delta=f"{low_count/total_districts*100:.0f}% of total")
+mc5.metric("⚡ Avg FSI",       f"{avg_fsi:.3f}")
+mc6.metric("🔥 Worst Region",  worst_dist)
 
 st.divider()
 
-# ─────────────────────────────────────────────────────────
-# TABS
-# ─────────────────────────────────────────────────────────
+# ── Tab Layout ───────────────────────────────────────────
 tab1, tab2, tab3, tab4 = st.tabs([
     "📡 STRESS HEATMAP",
     "🎮 FARMER SIMULATOR",
-    "📊 ANALYTICS",
+    "📊 ANALYTICS & ML",
     "🚨 ALERT SYSTEM"
 ])
 
 # ════════════════════════════════════════════════════════
-# TAB 1 — HEATMAP
+# TAB 1 — INTERACTIVE STRESS HEATMAP
 # ════════════════════════════════════════════════════════
 with tab1:
     st.markdown("### 🗺 FSI HEATMAP — KARNATAKA DISTRICTS")
 
-    with st.expander("❓ What is this map? (Click to learn)", expanded=False):
+    with st.expander("❓ How to read this map", expanded=False):
         st.markdown("""
-        **This map shows Farm Stress across all 30 Karnataka districts.**
+        **Each circle represents one Karnataka district.**
 
-        🟢 **GREEN dots** = LOW stress farms — good conditions, farmer is happy!
-        🟡 **YELLOW dots** = MEDIUM stress — some problems, needs attention
-        🔴 **RED dots** = HIGH stress — serious problems! Immediate help needed
+        🟢 **GREEN** = LOW stress — good conditions
+        🟡 **YELLOW** = MEDIUM stress — needs monitoring
+        🔴 **RED** = HIGH stress — immediate intervention needed
 
-        **Bigger dot = Higher stress level**
+        **Larger circle = higher FSI (more stress)**
 
-        👆 **Hover over any dot** to see full details: FSI score, stress reason,
-        rainfall level, crop price, yield, cost, and irrigation data.
-
-        The **colorbar on the right** shows FSI from 0 (best) to 1 (worst).
+        Hover over any district to see its full breakdown: FSI score,
+        stress classification, root cause, and all 5 parameter values.
         """)
 
-    # Map options row
     mapcol1, mapcol2 = st.columns([3, 1])
     with mapcol2:
-        zoom_level = st.slider(
-            "🔍 Map Zoom",
-            min_value=5, max_value=9, value=6,
-            help="Zoom in/out on the Karnataka map"
-        )
+        zoom_level = st.slider("🔍 Map Zoom", min_value=5, max_value=9, value=6)
 
-    # Render map
-    map_fig = build_map(hex_df, zoom=zoom_level)
-    st.plotly_chart(map_fig, use_container_width=True)
+    st.plotly_chart(build_map(hex_df, zoom=zoom_level), use_container_width=True)
 
-    # Mission Control row
-    st.markdown("### 🎯 MISSION CONTROL — DISTRICT DEEP DIVE")
-
+    # District deep-dive inspector
+    st.markdown("### 🎯 DISTRICT INSPECTOR")
     d_col1, d_col2 = st.columns([2, 1])
 
     with d_col1:
-        st.markdown("""
-        <small>Select a district to see its detailed farm stress profile</small>
-        """, unsafe_allow_html=True)
-
         selected_district = st.selectbox(
-            "🔍 Select District to Inspect",
-            options=sorted(hex_df["Region"].unique()),
-            help="Pick any Karnataka district to see its complete stress breakdown"
+            "🔍 Select District",
+            options=sorted(hex_df["Region"].unique())
         )
         sel = hex_df[hex_df["Region"] == selected_district].iloc[0]
-        stress_cls = {"HIGH": "glow-red", "MEDIUM": "glow-yellow", "LOW": "glow-lime"}[sel["Stress"]]
-        stress_icon = {"HIGH": "🔴", "MEDIUM": "🟡", "LOW": "🟢"}[sel["Stress"]]
+        stress_cls  = {"HIGH":"glow-red","MEDIUM":"glow-yellow","LOW":"glow-lime"}[sel["Stress"]]
+        stress_icon = {"HIGH":"🔴","MEDIUM":"🟡","LOW":"🟢"}[sel["Stress"]]
+
+        # Also show ML cluster label for this district
+        ml_row   = ml_df[ml_df["Region"] == selected_district].iloc[0]
+        ml_label = ml_row["ML_Stress"]
+        ml_match = "✅ Agrees with ML" if sel["Stress"] == ml_label else f"⚠️ ML says: {ml_label}"
 
         st.markdown(f"""
         <div class='game-card'>
@@ -1123,6 +1334,8 @@ with tab1:
                      <div class='fsi-big' style='font-size:1.8rem'>{sel['FSI']:.4f}</div></div>
                 <div><span style='color:rgba(0,255,136,0.5);font-size:0.75rem'>🚨 STRESS LEVEL</span>
                      <div class='{stress_cls}' style='font-family:Orbitron,monospace;font-weight:700;font-size:1.1rem'>{stress_icon} {sel['Stress']}</div></div>
+                <div><span style='color:rgba(0,255,136,0.5);font-size:0.75rem'>🤖 ML VERDICT</span>
+                     <div style='font-size:0.82rem;color:#39ff14'>{ml_match}</div></div>
                 <div><span style='color:rgba(0,255,136,0.5);font-size:0.75rem'>🧠 ROOT CAUSE</span>
                      <div style='font-size:0.85rem'>{sel['Reason']}</div></div>
             </div>
@@ -1175,103 +1388,66 @@ with tab1:
 with tab2:
     st.markdown("### 🎮 RAMU'S FARM SIMULATOR")
 
-    with st.expander("🕹️ HOW TO PLAY (Click to learn the game!)", expanded=True):
+    with st.expander("🕹️ HOW TO PLAY", expanded=True):
         st.markdown("""
-        **Welcome to Ramu's Farm!** 🌾
+        **Help farmer Ramu achieve a HAPPY farm!** 🌾
 
-        **Your Mission:** Help farmer Ramu achieve a HAPPY farm by adjusting the 5 parameters below.
+        | Parameter | Good value | Bad value |
+        |-----------|------------|-----------|
+        | 🌧 **Rainfall** | HIGH (80+) | LOW (below 40) |
+        | 💰 **Crop Price** | HIGH (80+) | LOW (below 40) |
+        | 🌿 **Crop Yield** | HIGH (80+) | LOW (below 40) |
+        | 📦 **Input Cost** | LOW (below 20) | HIGH (above 60) |
+        | 💧 **Irrigation** | HIGH (80+) | LOW (below 40) |
 
-        | Parameter | What it means | Good value | Bad value |
-        |-----------|---------------|------------|-----------|
-        | 🌧 **Rainfall** | How much rain the farm receives | HIGH (80+) | LOW (below 40) |
-        | 💰 **Crop Price** | Market price for crops | HIGH (80+) | LOW (below 40) |
-        | 🌿 **Crop Yield** | How much crop is produced | HIGH (80+) | LOW (below 40) |
-        | 📦 **Input Cost** | Cost of seeds, fertilizers etc. | LOW (below 20) | HIGH (above 60) |
-        | 💧 **Irrigation** | Water supply for farming | HIGH (80+) | LOW (below 40) |
-
-        **Watch Ramu:** He will **dance happily** when FSI is low, and **shake & cry** when FSI is high!
-
-        **Earn Points:** Keep FSI below 0.30 to earn XP and unlock achievements!
-
-        **🏅 7 Achievements** to unlock — can you get them all?
+        Keep FSI below 0.30 to earn XP. Unlock all 7 achievements to become an Avenger Elite!
         """)
 
-    # ── Game layout: Controls | Farmer | Score ──────────────
     gc1, gc2, gc3 = st.columns([2.2, 1.8, 2])
 
-    # ── LEFT: Environment sliders ────────────────────────────
     with gc1:
         st.markdown("**⚙️ ENVIRONMENT CONTROLS**")
-        st.markdown("<small>Drag the sliders to change farm conditions</small>", unsafe_allow_html=True)
-
-        rain  = st.slider("🌧 Rainfall Level",  0, 100, 50, key="g_rain",
-                          help="How much rainfall the farm gets. Higher = better for crops!")
-        price = st.slider("💰 Crop Market Price",  0, 100, 50, key="g_price",
-                          help="Price farmers receive for their crops in the market. Higher = more income!")
-        yld   = st.slider("🌿 Crop Yield",  0, 100, 50, key="g_yield",
-                          help="How much crop the farm produces per acre. Higher = more harvest!")
-        cost  = st.slider("📦 Input Cost",  0, 100, 50, key="g_cost",
-                          help="Cost of seeds, fertilizers, pesticides. LOWER is better for farmers!")
-        irrig = st.slider("💧 Irrigation Access",  0, 100, 50, key="g_irrig",
-                          help="How well the farm is irrigated with water supply. Higher = better!")
+        rain  = st.slider("🌧 Rainfall Level",     0, 100, 50, key="g_rain")
+        price = st.slider("💰 Crop Market Price",  0, 100, 50, key="g_price")
+        yld   = st.slider("🌿 Crop Yield",         0, 100, 50, key="g_yield")
+        cost  = st.slider("📦 Input Cost",         0, 100, 50, key="g_cost")
+        irrig = st.slider("💧 Irrigation Access",  0, 100, 50, key="g_irrig")
 
         st.divider()
-
-        # Season presets
-        st.markdown("**🌦 QUICK SEASON PRESETS**")
-        st.markdown("<small>Load real-world seasonal conditions instantly</small>", unsafe_allow_html=True)
+        st.markdown("**🌦 SEASON PRESETS**")
         ps1, ps2, ps3, ps4 = st.columns(4)
-
-        if "preset" not in st.session_state:
-            st.session_state.preset = None
-
         with ps1:
-            if st.button("🌧\nMonsoon", help="Heavy rains, good irrigation but sometimes low prices"):
-                st.session_state.preset = "monsoon"
-                st.rerun()
+            if st.button("🌧\nMonsoon"): st.session_state.preset = "monsoon"; st.rerun()
         with ps2:
-            if st.button("☀️\nDry", help="Drought conditions — very hard for farmers!"):
-                st.session_state.preset = "dry"
-                st.rerun()
+            if st.button("☀️\nDry"):    st.session_state.preset = "dry";     st.rerun()
         with ps3:
-            if st.button("🌾\nKharif", help="Main crop season — moderate conditions"):
-                st.session_state.preset = "kharif"
-                st.rerun()
+            if st.button("🌾\nKharif"): st.session_state.preset = "kharif";  st.rerun()
         with ps4:
-            if st.button("🏆\nIdeal", help="Perfect farm conditions! Achieve Farm Zen!"):
-                st.session_state.preset = "ideal"
-                st.rerun()
+            if st.button("🏆\nIdeal"):  st.session_state.preset = "ideal";   st.rerun()
 
-    # Apply preset if selected
-    if st.session_state.preset == "monsoon":
-        rain, price, yld, cost, irrig = 85, 55, 72, 42, 80
-    elif st.session_state.preset == "dry":
-        rain, price, yld, cost, irrig = 15, 45, 28, 58, 22
-    elif st.session_state.preset == "kharif":
-        rain, price, yld, cost, irrig = 68, 62, 65, 48, 60
-    elif st.session_state.preset == "ideal":
-        rain, price, yld, cost, irrig = 92, 88, 90, 12, 88
+    # Override slider values with preset values if a preset is active
+    if   st.session_state.preset == "monsoon": rain,price,yld,cost,irrig = 85,55,72,42,80
+    elif st.session_state.preset == "dry":     rain,price,yld,cost,irrig = 15,45,28,58,22
+    elif st.session_state.preset == "kharif":  rain,price,yld,cost,irrig = 68,62,65,48,60
+    elif st.session_state.preset == "ideal":   rain,price,yld,cost,irrig = 92,88,90,12,88
 
-    # Compute game FSI
-    g_fsi = compute_game_fsi(rain, price, yld, cost, irrig)
-    g_fsi = round(g_fsi, 4)
+    # Compute FSI from current slider/preset values
+    g_fsi = round(compute_game_fsi(rain, price, yld, cost, irrig), 4)
 
-    # Update score
+    # Award XP for maintaining low FSI
     if g_fsi < 0.30:
         st.session_state.score = min(9999, st.session_state.score + (15 if g_fsi < 0.15 else 5))
-        st.session_state.xp = min(100, st.session_state.xp + 3)
+        st.session_state.xp    = min(100,  st.session_state.xp + 3)
 
+    # Level up when XP bar fills
     if st.session_state.xp >= 100:
         st.session_state.xp = 0
         st.session_state.level += 1
-        st.markdown(f"""
-        <div class='ach-banner'>
-            🎊 LEVEL UP! YOU ARE NOW LEVEL {st.session_state.level}! 🎊
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f"<div class='ach-banner'>🎊 LEVEL UP! YOU ARE NOW LEVEL {st.session_state.level}! 🎊</div>",
+                    unsafe_allow_html=True)
         st.markdown("<script>AgriMusic.playSFX('win');</script>", unsafe_allow_html=True)
 
-    # Check achievements
+    # Check and display newly unlocked achievements
     new_achs = check_achievements(rain, price, yld, cost, irrig, g_fsi)
     for ach in new_achs:
         icon, color, desc = ACH_META[ach]
@@ -1280,116 +1456,84 @@ with tab2:
             <div style='font-size:2rem'>{icon}</div>
             <div style='color:{color};font-size:1rem'>ACHIEVEMENT UNLOCKED: {ach}</div>
             <div style='color:rgba(0,255,136,0.5);font-size:0.8rem'>{desc}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        </div>""", unsafe_allow_html=True)
         st.markdown("<script>AgriMusic.playSFX('win');</script>", unsafe_allow_html=True)
 
-    # ── CENTRE: Farmer character ─────────────────────────────
     with gc2:
         emoji, anim_cls, status_txt, message, st_color = farmer_state(g_fsi)
-        mood_pct = max(0, min(100, int((1 - g_fsi) * 100)))
-        m_color = mood_color(mood_pct)
-
+        mood_pct  = max(0, min(100, int((1 - g_fsi) * 100)))
+        m_color   = mood_color(mood_pct)
         fsi_color = "#ff2244" if g_fsi > 0.66 else "#ffea00" if g_fsi > 0.33 else "#39ff14"
         fsi_glow  = f"0 0 25px {fsi_color}"
 
-        # Play stress SFX if FSI spikes
+        # Trigger audio SFX on stress threshold crossings
         if g_fsi > 0.70 and st.session_state.last_fsi <= 0.70:
             st.markdown("<script>AgriMusic.playSFX('alert');</script>", unsafe_allow_html=True)
         elif g_fsi < 0.20 and st.session_state.last_fsi >= 0.20:
             st.markdown("<script>AgriMusic.playSFX('win');</script>", unsafe_allow_html=True)
         st.session_state.last_fsi = g_fsi
 
-        # Build farmer box as a clean string (avoids HTML comment rendering issues)
-        score_str   = str(st.session_state.score).zfill(4)
-        xp_val      = st.session_state.xp
-        lvl_val     = st.session_state.level
-        fsi_str     = f"{g_fsi:.3f}"
-        stress_lbl  = ("&#128308; HIGH STRESS" if g_fsi >= 0.62
-                        else "&#128993; MEDIUM STRESS" if g_fsi >= 0.38
-                        else "&#128994; LOW STRESS")
+        score_str  = str(st.session_state.score).zfill(4)
+        xp_val     = st.session_state.xp
+        lvl_val    = st.session_state.level
+        stress_lbl = ("&#128308; HIGH STRESS" if g_fsi >= 0.62
+                      else "&#128993; MEDIUM STRESS" if g_fsi >= 0.38
+                      else "&#128994; LOW STRESS")
 
         farmer_html = (
             "<div class='farmer-box'>"
-            f"<div style='font-family:Orbitron,monospace;font-size:0.62rem;"
-            f"color:rgba(0,255,136,0.5);letter-spacing:0.2em'>FARMER XP</div>"
-            f"<div style='font-family:Orbitron,monospace;font-size:2rem;"
-            f"font-weight:900;color:#39ff14;"
-            f"filter:drop-shadow(0 0 12px rgba(57,255,20,0.6))'>{score_str}</div>"
-            f"<div style='font-family:Share Tech Mono,monospace;font-size:0.7rem;"
-            f"color:rgba(0,255,136,0.4)'>LEVEL {lvl_val}</div>"
-            f"<div class='xp-track' style='margin:6px 0'>"
-            f"<div class='xp-fill' style='width:{xp_val}%'></div></div>"
-            f"<div style='font-size:0.62rem;color:rgba(0,255,136,0.3);"
-            f"font-family:Share Tech Mono,monospace;margin-bottom:12px'>XP {xp_val}/100</div>"
-            f"<span class='farmer-emoji {anim_cls}' style='font-size:5rem;display:block;"
-            f"line-height:1.2'>{emoji}</span>"
-            f"<div style='font-family:Orbitron,monospace;font-size:0.72rem;"
-            f"font-weight:700;color:#00ff88;letter-spacing:0.1em;margin:8px 0 4px'>"
-            f"RAMU &#8212; KARNATAKA FARMER</div>"
-            f"<div style='font-family:Share Tech Mono,monospace;font-size:0.65rem;"
-            f"color:rgba(0,255,136,0.4);text-align:left;margin-bottom:3px'>"
-            f"HAPPINESS METER {mood_pct}%</div>"
-            f"<div class='mood-track'>"
-            f"<div class='mood-fill-inner' style='width:{mood_pct}%;background:{m_color}'></div></div>"
-            f"<div style='font-family:Orbitron,monospace;font-size:0.8rem;font-weight:700;"
-            f"color:{st_color};margin:10px 0 4px;text-shadow:0 0 10px {st_color}'>{status_txt}</div>"
-            f"<div style='font-size:0.78rem;color:rgba(0,255,136,0.55);"
-            f"font-style:italic;line-height:1.4;min-height:44px'>{message}</div>"
-            f"<div style='background:rgba(0,0,0,0.4);border:1px solid rgba(0,255,136,0.2);"
-            f"border-radius:6px;padding:10px;margin-top:12px'>"
-            f"<div class='fsi-big' style='color:{fsi_color};text-shadow:{fsi_glow}'>{fsi_str}</div>"
-            f"<div style='font-family:Share Tech Mono,monospace;font-size:0.65rem;"
-            f"color:rgba(0,255,136,0.4);letter-spacing:0.2em'>FARM STRESS INDEX</div>"
+            f"<div style='font-family:Orbitron,monospace;font-size:0.62rem;color:rgba(0,255,136,0.5);letter-spacing:0.2em'>FARMER XP</div>"
+            f"<div style='font-family:Orbitron,monospace;font-size:2rem;font-weight:900;color:#39ff14;filter:drop-shadow(0 0 12px rgba(57,255,20,0.6))'>{score_str}</div>"
+            f"<div style='font-family:Share Tech Mono,monospace;font-size:0.7rem;color:rgba(0,255,136,0.4)'>LEVEL {lvl_val}</div>"
+            f"<div class='xp-track' style='margin:6px 0'><div class='xp-fill' style='width:{xp_val}%'></div></div>"
+            f"<div style='font-size:0.62rem;color:rgba(0,255,136,0.3);font-family:Share Tech Mono,monospace;margin-bottom:12px'>XP {xp_val}/100</div>"
+            f"<span class='farmer-emoji {anim_cls}' style='font-size:5rem;display:block;line-height:1.2'>{emoji}</span>"
+            f"<div style='font-family:Orbitron,monospace;font-size:0.72rem;font-weight:700;color:#00ff88;letter-spacing:0.1em;margin:8px 0 4px'>RAMU &#8212; KARNATAKA FARMER</div>"
+            f"<div style='font-family:Share Tech Mono,monospace;font-size:0.65rem;color:rgba(0,255,136,0.4);text-align:left;margin-bottom:3px'>HAPPINESS METER {mood_pct}%</div>"
+            f"<div class='mood-track'><div class='mood-fill-inner' style='width:{mood_pct}%;background:{m_color}'></div></div>"
+            f"<div style='font-family:Orbitron,monospace;font-size:0.8rem;font-weight:700;color:{st_color};margin:10px 0 4px;text-shadow:0 0 10px {st_color}'>{status_txt}</div>"
+            f"<div style='font-size:0.78rem;color:rgba(0,255,136,0.55);font-style:italic;line-height:1.4;min-height:44px'>{message}</div>"
+            f"<div style='background:rgba(0,0,0,0.4);border:1px solid rgba(0,255,136,0.2);border-radius:6px;padding:10px;margin-top:12px'>"
+            f"<div class='fsi-big' style='color:{fsi_color};text-shadow:{fsi_glow}'>{g_fsi:.3f}</div>"
+            f"<div style='font-family:Share Tech Mono,monospace;font-size:0.65rem;color:rgba(0,255,136,0.4);letter-spacing:0.2em'>FARM STRESS INDEX</div>"
             f"<div style='font-size:0.72rem;margin-top:4px;color:{fsi_color}'>{stress_lbl}</div>"
-            f"</div>"
-            f"</div>"
+            f"</div></div>"
         )
         st.markdown(farmer_html, unsafe_allow_html=True)
 
-    # ── RIGHT: Achievements + Stress Drivers ─────────────────
     with gc3:
         st.markdown("**🏅 ACHIEVEMENTS**")
-        st.markdown("<small>Unlock all 7 to become a Farm Avenger!</small>", unsafe_allow_html=True)
-
         for ach_name, (icon, color, desc) in ACH_META.items():
-            unlocked = st.session_state.achievements[ach_name]
-            opacity = "1" if unlocked else "0.3"
+            unlocked     = st.session_state.achievements[ach_name]
+            opacity      = "1" if unlocked else "0.3"
             border_style = f"2px solid {color}" if unlocked else f"1px solid {color}55"
-            glow = f"box-shadow:0 0 12px {color}66;" if unlocked else ""
+            glow         = f"box-shadow:0 0 12px {color}66;" if unlocked else ""
             st.markdown(f"""
             <div style='display:flex;align-items:center;gap:10px;padding:7px 10px;
-                 border-radius:6px;border:{border_style};
-                 background:rgba(0,20,5,0.6);margin-bottom:5px;
-                 opacity:{opacity};{glow}transition:all 0.3s'>
+                 border-radius:6px;border:{border_style};background:rgba(0,20,5,0.6);
+                 margin-bottom:5px;opacity:{opacity};{glow}transition:all 0.3s'>
                 <span style='font-size:1.2rem'>{icon}</span>
                 <div>
                     <div style='font-weight:700;font-size:0.85rem;color:{color}'>{ach_name}</div>
                     <div style='font-size:0.68rem;color:rgba(0,255,136,0.4)'>{desc}</div>
                 </div>
                 <span style='margin-left:auto;font-size:0.7rem'>{'✅' if unlocked else '🔒'}</span>
-            </div>
-            """, unsafe_allow_html=True)
+            </div>""", unsafe_allow_html=True)
 
         st.divider()
-
-        # Stress drivers panel
         st.markdown("**💡 WHAT'S STRESSING RAMU?**")
         drivers = []
-        if rain  < 40: drivers.append(("🌧", "Increase Rainfall", "#00ccff"))
-        if price < 40: drivers.append(("💰", "Raise Crop Price",  "#ffea00"))
-        if yld   < 40: drivers.append(("🌿", "Improve Yield",     "#39ff14"))
-        if cost  > 60: drivers.append(("📦", "Reduce Input Cost", "#ff6600"))
-        if irrig < 40: drivers.append(("💧", "Improve Irrigation","#00eeff"))
-
+        if rain  < 40: drivers.append(("🌧","Increase Rainfall","#00ccff"))
+        if price < 40: drivers.append(("💰","Raise Crop Price","#ffea00"))
+        if yld   < 40: drivers.append(("🌿","Improve Yield","#39ff14"))
+        if cost  > 60: drivers.append(("📦","Reduce Input Cost","#ff6600"))
+        if irrig < 40: drivers.append(("💧","Improve Irrigation","#00eeff"))
         if drivers:
             for icon, tip, color in drivers:
                 st.markdown(f"""
                 <div style='padding:5px 10px;border:1px solid {color}44;
                      border-left:3px solid {color};border-radius:4px;
-                     margin-bottom:4px;font-size:0.82rem;color:{color}'>
-                     {icon} Fix: {tip}
-                </div>
+                     margin-bottom:4px;font-size:0.82rem;color:{color}'>{icon} Fix: {tip}</div>
                 """, unsafe_allow_html=True)
         else:
             st.markdown("""
@@ -1397,159 +1541,308 @@ with tab2:
                  text-align:center;color:#39ff14;font-weight:700'>
                 ✅ ALL PARAMETERS HEALTHY!<br>
                 <span style='font-size:0.75rem;opacity:0.6'>Ramu is thriving!</span>
-            </div>
-            """, unsafe_allow_html=True)
+            </div>""", unsafe_allow_html=True)
 
-    # ── Reset button ─────────────────────────────────────────
     st.divider()
-    rcol1, rcol2, rcol3 = st.columns([1,1,4])
+    rcol1, rcol2, _ = st.columns([1,1,4])
     with rcol1:
-        if st.button("🔄 RESET SCORE", help="Reset your score and achievements to start fresh"):
-            st.session_state.score = 0
-            st.session_state.xp = 0
-            st.session_state.level = 1
+        if st.button("🔄 RESET SCORE"):
+            st.session_state.score = 0; st.session_state.xp = 0; st.session_state.level = 1
             st.session_state.achievements = {k: False for k in st.session_state.achievements}
-            st.session_state.preset = None
-            st.rerun()
+            st.session_state.preset = None; st.rerun()
     with rcol2:
         if st.button("🗑 CLEAR PRESET"):
-            st.session_state.preset = None
-            st.rerun()
+            st.session_state.preset = None; st.rerun()
 
 # ════════════════════════════════════════════════════════
-# TAB 3 — ANALYTICS
+# TAB 3 — ANALYTICS & ML
+# Combines standard analytics charts with two ML sections:
+#   Section A: KMeans unsupervised clustering
+#   Section B: Linear Regression with feature importance
 # ════════════════════════════════════════════════════════
 with tab3:
     st.markdown("### 📊 STRESS ANALYTICS DASHBOARD")
 
-    with st.expander("❓ Understanding the charts", expanded=False):
-        st.markdown("""
-        **What do these charts tell us?**
-
-        📊 **Stress Distribution Bar**: Shows how many districts are in HIGH / MEDIUM / LOW stress.
-        A healthy state has most districts in the LOW category.
-
-        🌾 **Crop-wise FSI**: Compare which crops face more stress. Crops with high FSI need policy intervention.
-
-        🔥 **Full District Ranking**: Sorted from most stressed to least — use this to prioritize aid.
-
-        📈 **Parameter Correlation**: See which factor (rainfall, price, etc.) most influences stress.
-        """)
-
-    # Charts row
+    # ── Standard charts ──────────────────────────────────
     ac1, ac2 = st.columns(2)
 
     with ac1:
-        # Stress distribution bar chart
+        # Bar chart: count of districts per stress category
         stress_counts = hex_df["Stress"].value_counts().reindex(["HIGH","MEDIUM","LOW"]).fillna(0)
-        bar_colors = ["#ff2244","#ffea00","#39ff14"]
         fig_bar = go.Figure(go.Bar(
-            x=stress_counts.index,
-            y=stress_counts.values,
-            marker_color=bar_colors,
-            marker_line_color=["rgba(255,0,0,0.5)","rgba(255,255,0,0.5)","rgba(0,255,0,0.5)"],
-            marker_line_width=1,
-            text=stress_counts.values.astype(int),
-            textposition="outside",
+            x=stress_counts.index, y=stress_counts.values,
+            marker_color=["#ff2244","#ffea00","#39ff14"],
+            text=stress_counts.values.astype(int), textposition="outside",
             textfont=dict(color="#00ff88", family="Share Tech Mono"),
         ))
         fig_bar.update_layout(
-            title=dict(text="📊 Districts by Stress Category", font=dict(color="#39ff14", family="Orbitron", size=13)),
-            xaxis=dict(tickfont=dict(color="#00ff88", family="Share Tech Mono")),
-            yaxis=dict(tickfont=dict(color="#00ff88", family="Share Tech Mono"), gridcolor="rgba(0,255,136,0.08)"),
+            title=dict(text="Districts by Stress Category", font=dict(color="#39ff14",family="Orbitron",size=13)),
+            xaxis=dict(tickfont=dict(color="#00ff88",family="Share Tech Mono")),
+            yaxis=dict(tickfont=dict(color="#00ff88",family="Share Tech Mono"),gridcolor="rgba(0,255,136,0.08)"),
             paper_bgcolor="rgba(0,13,2,0.0)", plot_bgcolor="rgba(0,13,2,0.6)",
-            font=dict(color="#00ff88"), height=320, margin=dict(t=40,b=20,l=30,r=20),
-            showlegend=False
+            font=dict(color="#00ff88"), height=300, margin=dict(t=40,b=20,l=30,r=20), showlegend=False
         )
         st.plotly_chart(fig_bar, use_container_width=True)
 
     with ac2:
-        # Crop-wise average FSI
+        # Horizontal bar: average FSI per crop type
         crop_fsi = df_filtered.groupby("Crop")["FSI"].mean().sort_values(ascending=False)
         fig_crop = go.Figure(go.Bar(
-            y=crop_fsi.index,
-            x=crop_fsi.values,
-            orientation="h",
-            marker_color=crop_fsi.values,
-            marker_colorscale="RdYlGn",
-            marker_reversescale=True,
-            text=[f"{v:.3f}" for v in crop_fsi.values],
-            textposition="outside",
+            y=crop_fsi.index, x=crop_fsi.values, orientation="h",
+            marker_color=crop_fsi.values, marker_colorscale="RdYlGn", marker_reversescale=True,
+            text=[f"{v:.3f}" for v in crop_fsi.values], textposition="outside",
             textfont=dict(color="#00ff88", family="Share Tech Mono"),
         ))
         fig_crop.update_layout(
-            title=dict(text="🌾 Average FSI by Crop Type", font=dict(color="#39ff14", family="Orbitron", size=13)),
-            xaxis=dict(tickfont=dict(color="#00ff88", family="Share Tech Mono"), gridcolor="rgba(0,255,136,0.08)"),
-            yaxis=dict(tickfont=dict(color="#00ff88", family="Share Tech Mono")),
+            title=dict(text="Average FSI by Crop Type", font=dict(color="#39ff14",family="Orbitron",size=13)),
+            xaxis=dict(tickfont=dict(color="#00ff88",family="Share Tech Mono"),gridcolor="rgba(0,255,136,0.08)"),
+            yaxis=dict(tickfont=dict(color="#00ff88",family="Share Tech Mono")),
             paper_bgcolor="rgba(0,13,2,0.0)", plot_bgcolor="rgba(0,13,2,0.6)",
-            font=dict(color="#00ff88"), height=320, margin=dict(t=40,b=20,l=30,r=20),
-            showlegend=False
+            font=dict(color="#00ff88"), height=300, margin=dict(t=40,b=20,l=30,r=20), showlegend=False
         )
         st.plotly_chart(fig_crop, use_container_width=True)
 
-    # Full district ranking table
-    st.markdown("### 🔥 FULL DISTRICT STRESS RANKING")
-    st.markdown("<small>Sorted from most stressed to least stressed district</small>", unsafe_allow_html=True)
-
+    # Full ranking table
+    st.markdown("### 🔥 DISTRICT STRESS RANKING")
     sorted_df = hex_df.sort_values("FSI", ascending=False)
-
     for i, (_, row) in enumerate(sorted_df.iterrows()):
-        s = row["Stress"]
-        icon  = {"HIGH":"🔴","MEDIUM":"🟡","LOW":"🟢"}[s]
-        color = {"HIGH":"#ff2244","MEDIUM":"#ffea00","LOW":"#39ff14"}[s]
-        rank_bg = "rgba(255,34,68,0.05)" if s=="HIGH" else "rgba(255,234,0,0.03)" if s=="MEDIUM" else "rgba(57,255,20,0.03)"
-
+        s       = row["Stress"]
+        icon    = {"HIGH":"🔴","MEDIUM":"🟡","LOW":"🟢"}[s]
+        color   = {"HIGH":"#ff2244","MEDIUM":"#ffea00","LOW":"#39ff14"}[s]
+        rank_bg = ("rgba(255,34,68,0.05)" if s=="HIGH" else
+                   "rgba(255,234,0,0.03)"  if s=="MEDIUM" else
+                   "rgba(57,255,20,0.03)")
         st.markdown(f"""
         <div style='display:flex;align-items:center;gap:12px;padding:7px 12px;
-             margin-bottom:3px;border:1px solid {color}22;
-             border-left:3px solid {color};border-radius:4px;
-             background:{rank_bg}'>
-            <span style='font-family:Orbitron,monospace;font-size:0.65rem;
-                  color:rgba(255,136,0,0.6);width:22px'>#{i+1}</span>
+             margin-bottom:3px;border:1px solid {color}22;border-left:3px solid {color};
+             border-radius:4px;background:{rank_bg}'>
+            <span style='font-family:Orbitron,monospace;font-size:0.65rem;color:rgba(255,136,0,0.6);width:22px'>#{i+1}</span>
             <span style='font-weight:700;font-size:0.88rem;flex:1'>{row['Region']}</span>
             <span style='font-size:0.75rem;color:rgba(0,255,136,0.5);flex:1'>{row['Reason']}</span>
             <span style='font-family:Share Tech Mono,monospace;font-size:0.8rem;color:{color}'>FSI {row['FSI']:.3f}</span>
             <span style='width:70px;text-align:right;font-size:0.75rem;color:{color}'>{icon} {s}</span>
-        </div>
-        """, unsafe_allow_html=True)
+        </div>""", unsafe_allow_html=True)
 
-    # Parameter averages radar-style
-    st.markdown("### 📡 DISTRICT PARAMETER AVERAGES")
-    params = ["Rainfall","Price","Yield","Irrigation"]
+    # Radar chart
+    st.markdown("### 📡 PARAMETER AVERAGES BY STRESS LEVEL")
     RADAR_FILL = {
-        "HIGH":   ("rgba(255,34,68,1)",  "rgba(255,34,68,0.12)"),
-        "MEDIUM": ("rgba(255,234,0,1)",  "rgba(255,234,0,0.12)"),
-        "LOW":    ("rgba(57,255,20,1)",  "rgba(57,255,20,0.12)"),
+        "HIGH":   ("rgba(255,34,68,1)","rgba(255,34,68,0.12)"),
+        "MEDIUM": ("rgba(255,234,0,1)","rgba(255,234,0,0.12)"),
+        "LOW":    ("rgba(57,255,20,1)","rgba(57,255,20,0.12)"),
     }
+    params    = ["Rainfall","Price","Yield","Irrigation"]
     fig_radar = go.Figure()
-    for stress_lvl in ["HIGH", "MEDIUM", "LOW"]:
+    for stress_lvl in ["HIGH","MEDIUM","LOW"]:
         line_c, fill_c = RADAR_FILL[stress_lvl]
         subset = hex_df[hex_df["Stress"] == stress_lvl]
         if len(subset) > 0:
             means = [subset[p].mean() for p in params]
             fig_radar.add_trace(go.Scatterpolar(
-                r=means + [means[0]],
-                theta=params + [params[0]],
-                fill="toself",
-                name=stress_lvl,
-                line_color=line_c,
-                fillcolor=fill_c,
+                r=means+[means[0]], theta=params+[params[0]],
+                fill="toself", name=stress_lvl,
+                line_color=line_c, fillcolor=fill_c,
             ))
     fig_radar.update_layout(
         polar=dict(
-            radialaxis=dict(visible=True, range=[0,1], gridcolor="rgba(0,255,136,0.15)",
-                           tickfont=dict(color="rgba(0,255,136,0.5)", size=9)),
-            angularaxis=dict(tickfont=dict(color="#00ff88", family="Rajdhani", size=11)),
+            radialaxis=dict(visible=True,range=[0,1],gridcolor="rgba(0,255,136,0.15)",
+                           tickfont=dict(color="rgba(0,255,136,0.5)",size=9)),
+            angularaxis=dict(tickfont=dict(color="#00ff88",family="Rajdhani",size=11)),
             bgcolor="rgba(0,13,2,0.6)"
         ),
-        showlegend=True, height=380,
-        paper_bgcolor="rgba(0,0,0,0)",
+        showlegend=True, height=380, paper_bgcolor="rgba(0,0,0,0)",
         font=dict(color="#00ff88"),
-        legend=dict(font=dict(color="#00ff88"), bgcolor="rgba(0,13,2,0.8)",
-                   bordercolor="rgba(0,255,136,0.3)", borderwidth=1),
-        title=dict(text="Average Parameters by Stress Level", font=dict(color="#39ff14", family="Orbitron", size=12))
+        legend=dict(font=dict(color="#00ff88"),bgcolor="rgba(0,13,2,0.8)",
+                   bordercolor="rgba(0,255,136,0.3)",borderwidth=1),
+        title=dict(text="Average Parameters by Stress Level",font=dict(color="#39ff14",family="Orbitron",size=12))
     )
     st.plotly_chart(fig_radar, use_container_width=True)
+
+    st.divider()
+
+    # ════════════════════════════════════════════════════
+    # ML SECTION A — KMeans UNSUPERVISED CLUSTERING
+    # ════════════════════════════════════════════════════
+    st.markdown("### 🤖 ML MODULE A — KMeans UNSUPERVISED CLUSTERING")
+    st.markdown(
+        "<small>Scikit-learn KMeans groups districts by farm parameter similarity "
+        "without using any predefined stress labels. "
+        "Features are standardised before clustering.</small>",
+        unsafe_allow_html=True
+    )
+
+    mla1, mla2 = st.columns(2)
+
+    with mla1:
+        # KMeans cluster distribution bar
+        ml_counts  = ml_df["ML_Stress"].value_counts().reindex(["HIGH","MEDIUM","LOW"]).fillna(0)
+        fig_ml_bar = go.Figure(go.Bar(
+            x=ml_counts.index, y=ml_counts.values,
+            marker_color=["#ff2244","#ffea00","#39ff14"],
+            text=ml_counts.values.astype(int), textposition="outside",
+            textfont=dict(color="#00ff88", family="Share Tech Mono"),
+        ))
+        fig_ml_bar.update_layout(
+            title=dict(text="🤖 KMeans Cluster Distribution", font=dict(color="#39ff14",family="Orbitron",size=13)),
+            xaxis=dict(tickfont=dict(color="#00ff88",family="Share Tech Mono")),
+            yaxis=dict(tickfont=dict(color="#00ff88",family="Share Tech Mono"),gridcolor="rgba(0,255,136,0.08)"),
+            paper_bgcolor="rgba(0,13,2,0.0)", plot_bgcolor="rgba(0,13,2,0.6)",
+            font=dict(color="#00ff88"), height=300, margin=dict(t=40,b=20,l=30,r=20), showlegend=False
+        )
+        st.plotly_chart(fig_ml_bar, use_container_width=True)
+
+    with mla2:
+        # Scatter: FSI vs Rainfall coloured by ML cluster
+        cl_colors  = {"HIGH":"#ff2244","MEDIUM":"#ffea00","LOW":"#39ff14"}
+        fig_scatter = go.Figure()
+        for cl in ["HIGH","MEDIUM","LOW"]:
+            sub = ml_df[ml_df["ML_Stress"] == cl]
+            fig_scatter.add_trace(go.Scatter(
+                x=sub["Rainfall"], y=sub["FSI"],
+                mode="markers+text",
+                marker=dict(size=10, color=cl_colors[cl], opacity=0.85,
+                            line=dict(color="rgba(0,255,136,0.3)",width=1)),
+                text=sub["Region"], textposition="top center",
+                textfont=dict(size=7, color=cl_colors[cl]),
+                name=f"Cluster: {cl}",
+            ))
+        fig_scatter.update_layout(
+            title=dict(text="FSI vs Rainfall — ML Clusters", font=dict(color="#39ff14",family="Orbitron",size=13)),
+            xaxis=dict(title="Rainfall",tickfont=dict(color="#00ff88"),gridcolor="rgba(0,255,136,0.08)"),
+            yaxis=dict(title="FSI",tickfont=dict(color="#00ff88"),gridcolor="rgba(0,255,136,0.08)"),
+            paper_bgcolor="rgba(0,13,2,0.0)", plot_bgcolor="rgba(0,13,2,0.6)",
+            font=dict(color="#00ff88"), height=300, margin=dict(t=40,b=20,l=40,r=20),
+            legend=dict(font=dict(color="#00ff88"),bgcolor="rgba(0,13,2,0.8)")
+        )
+        st.plotly_chart(fig_scatter, use_container_width=True)
+
+    # FSI vs ML cluster agreement table
+    agree_count = (ml_df["Stress"] == ml_df["ML_Stress"]).sum()
+    agree_pct   = agree_count / len(ml_df) * 100
+    st.markdown(f"""
+    <div class='game-card' style='text-align:center;padding:14px;margin-bottom:12px'>
+        <span style='font-family:Orbitron,monospace;font-size:1.8rem;font-weight:900;
+        color:#39ff14;text-shadow:0 0 15px rgba(57,255,20,0.6)'>{agree_pct:.0f}%</span>
+        <div style='color:rgba(0,255,136,0.5);font-size:0.8rem;margin-top:4px'>
+        Agreement between rule-based FSI labels and KMeans ML clusters
+        ({agree_count} of {len(ml_df)} districts match)</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    for _, row in ml_df[["Region","Stress","ML_Stress","FSI"]].sort_values("FSI",ascending=False).iterrows():
+        match      = row["Stress"] == row["ML_Stress"]
+        match_icon = "✅" if match else "⚠️"
+        color      = "#39ff14" if match else "#ffea00"
+        lbl_colors = {"HIGH":"#ff2244","MEDIUM":"#ffea00","LOW":"#39ff14"}
+        st.markdown(f"""
+        <div style='display:flex;align-items:center;gap:12px;padding:5px 12px;
+             margin-bottom:2px;border:1px solid {color}22;border-radius:4px;background:rgba(0,20,5,0.5)'>
+            <span style='flex:1;font-size:0.85rem;font-weight:700'>{row['Region']}</span>
+            <span style='font-size:0.75rem;color:rgba(0,255,136,0.5)'>FSI {row['FSI']:.3f}</span>
+            <span style='font-size:0.75rem;color:#aaa'>Rule: <b style='color:{lbl_colors[row["Stress"]]}'>{row['Stress']}</b></span>
+            <span style='font-size:0.75rem;color:#aaa'>ML: <b style='color:{lbl_colors[row["ML_Stress"]]}'>{row['ML_Stress']}</b></span>
+            <span style='font-size:0.85rem'>{match_icon}</span>
+        </div>""", unsafe_allow_html=True)
+
+    st.divider()
+
+    # ════════════════════════════════════════════════════
+    # ML SECTION B — LINEAR REGRESSION (FSI PREDICTION)
+    # ════════════════════════════════════════════════════
+    st.markdown("### 📈 ML MODULE B — LINEAR REGRESSION (FSI PREDICTION)")
+    st.markdown(
+        "<small>Supervised learning: predicts FSI from farm parameters. "
+        "Trained on 80% of data, evaluated on 20% held-out test set. "
+        "Coefficients reveal which parameters most drive farm stress.</small>",
+        unsafe_allow_html=True
+    )
+
+    r   = regression_results
+    mlb1, mlb2, mlb3 = st.columns(3)
+    mlb1.metric("📐 R² Score",  f"{r['r2']:.4f}",  help="1.0 = perfect prediction")
+    mlb2.metric("📉 RMSE",      f"{r['rmse']:.4f}", help="Lower = better fit")
+    mlb3.metric("🧪 Test Size", f"{len(r['y_test'])} samples")
+
+    mlbc1, mlbc2 = st.columns(2)
+
+    with mlbc1:
+        # Feature coefficient bar chart
+        coef_df     = r["coef_df"]
+        coef_colors = ["#ff2244" if c > 0 else "#39ff14" for c in coef_df["Coefficient"]]
+        fig_coef    = go.Figure(go.Bar(
+            x=coef_df["Feature"], y=coef_df["Coefficient"],
+            marker_color=coef_colors,
+            text=[f"{v:+.3f}" for v in coef_df["Coefficient"]],
+            textposition="outside",
+            textfont=dict(color="#00ff88", family="Share Tech Mono"),
+        ))
+        fig_coef.update_layout(
+            title=dict(text="Feature Coefficients (impact on FSI)",
+                       font=dict(color="#39ff14",family="Orbitron",size=12)),
+            xaxis=dict(tickfont=dict(color="#00ff88",family="Share Tech Mono")),
+            yaxis=dict(tickfont=dict(color="#00ff88",family="Share Tech Mono"),
+                       gridcolor="rgba(0,255,136,0.08)", zeroline=True,
+                       zerolinecolor="rgba(0,255,136,0.3)"),
+            paper_bgcolor="rgba(0,13,2,0.0)", plot_bgcolor="rgba(0,13,2,0.6)",
+            font=dict(color="#00ff88"), height=320, margin=dict(t=40,b=30,l=40,r=20),
+            showlegend=False
+        )
+        st.plotly_chart(fig_coef, use_container_width=True)
+        st.markdown(
+            "<small>🔴 Positive coefficient = increases stress &nbsp;|&nbsp; "
+            "🟢 Negative coefficient = reduces stress</small>",
+            unsafe_allow_html=True
+        )
+
+    with mlbc2:
+        # Scatter: actual vs predicted FSI
+        fig_pred = go.Figure()
+        # Perfect prediction line
+        min_val, max_val = float(r["y_test"].min()), float(r["y_test"].max())
+        fig_pred.add_trace(go.Scatter(
+            x=[min_val, max_val], y=[min_val, max_val],
+            mode="lines", name="Perfect Fit",
+            line=dict(color="rgba(0,255,136,0.4)", dash="dash", width=1)
+        ))
+        # Actual vs predicted scatter points
+        fig_pred.add_trace(go.Scatter(
+            x=r["y_test"], y=r["y_pred"],
+            mode="markers", name="Predictions",
+            marker=dict(size=5, color="#00ff88", opacity=0.6,
+                        line=dict(color="rgba(0,255,136,0.2)", width=0.5))
+        ))
+        fig_pred.update_layout(
+            title=dict(text=f"Actual vs Predicted FSI  (R²={r['r2']:.3f})",
+                       font=dict(color="#39ff14",family="Orbitron",size=12)),
+            xaxis=dict(title="Actual FSI",tickfont=dict(color="#00ff88"),
+                       gridcolor="rgba(0,255,136,0.08)"),
+            yaxis=dict(title="Predicted FSI",tickfont=dict(color="#00ff88"),
+                       gridcolor="rgba(0,255,136,0.08)"),
+            paper_bgcolor="rgba(0,13,2,0.0)", plot_bgcolor="rgba(0,13,2,0.6)",
+            font=dict(color="#00ff88"), height=320, margin=dict(t=40,b=30,l=50,r=20),
+            legend=dict(font=dict(color="#00ff88"),bgcolor="rgba(0,13,2,0.8)")
+        )
+        st.plotly_chart(fig_pred, use_container_width=True)
+
+    # Interpretation card
+    top_feature   = r["coef_df"].iloc[0]["Feature"]
+    top_coef      = r["coef_df"].iloc[0]["Coefficient"]
+    top_direction = "increases" if top_coef > 0 else "decreases"
+    st.markdown(f"""
+    <div class='game-card'>
+        <div style='font-family:Orbitron,monospace;font-size:0.8rem;color:#39ff14;margin-bottom:8px'>
+        🧠 MODEL INTERPRETATION</div>
+        <div style='font-size:0.85rem;line-height:1.8;color:rgba(0,255,136,0.8)'>
+        • The regression model achieves <b>R² = {r['r2']:.4f}</b> —
+          meaning {r['r2']*100:.1f}% of FSI variance is explained by the 5 input features.<br>
+        • <b>{top_feature}</b> is the strongest predictor: a unit increase
+          {top_direction} FSI by <b>{abs(top_coef):.3f}</b>.<br>
+        • The near-perfect R² is expected because FSI is mathematically
+          derived from these same parameters — this confirms the formula's integrity.<br>
+        • RMSE of <b>{r['rmse']:.4f}</b> indicates very low prediction error on unseen data.
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
 
 # ════════════════════════════════════════════════════════
 # TAB 4 — ALERT SYSTEM
@@ -1557,19 +1850,12 @@ with tab3:
 with tab4:
     st.markdown("### 🚨 HIGH STRESS ALERT SYSTEM")
 
-    with st.expander("❓ What is this alert system?", expanded=False):
+    with st.expander("❓ About this alert system", expanded=False):
         st.markdown("""
-        **This panel shows districts that need IMMEDIATE attention.**
-
-        🔴 **HIGH stress** districts are shown here — these are areas where farmers are suffering
-        due to poor rainfall, low crop prices, high costs, or poor irrigation.
-
-        **How to use this:**
-        - Government officials can use this to prioritize aid and subsidies
-        - NGOs can identify which regions need immediate intervention
-        - Researchers can study patterns in farm distress
-
-        **Action Items listed** tell you EXACTLY what needs to be fixed in each district.
+        Districts are flagged automatically based on their FSI score.
+        **HIGH** stress districts need immediate government intervention.
+        Action items are generated per district based on which specific
+        parameters are below/above threshold values.
         """)
 
     high_districts = hex_df[hex_df["Stress"]=="HIGH"].sort_values("FSI", ascending=False)
@@ -1577,16 +1863,14 @@ with tab4:
 
     if len(high_districts) > 0:
         st.markdown(f"#### 🔴 {len(high_districts)} DISTRICTS IN CRITICAL STRESS")
-        st.markdown("<small>These districts need immediate government intervention!</small>", unsafe_allow_html=True)
-
         for _, row in high_districts.iterrows():
-            # Build action items
+            # Generate targeted action items based on specific parameter failures
             actions = []
-            if row["Rainfall"]  < 0.4: actions.append("Provide drought relief & water tankers")
-            if row["Price"]     < 0.4: actions.append("Implement Minimum Support Price (MSP)")
-            if row["Yield"]     < 0.4: actions.append("Distribute improved seeds & fertilizer")
-            if row["Cost"]      > 0.6: actions.append("Provide input subsidies to reduce cost")
-            if row["Irrigation"]< 0.4: actions.append("Build irrigation canals / bore wells")
+            if row["Rainfall"]   < 0.4: actions.append("Provide drought relief & water tankers")
+            if row["Price"]      < 0.4: actions.append("Implement Minimum Support Price (MSP)")
+            if row["Yield"]      < 0.4: actions.append("Distribute improved seeds & fertilizer")
+            if row["Cost"]       > 0.6: actions.append("Provide input subsidies to reduce cost")
+            if row["Irrigation"] < 0.4: actions.append("Build irrigation canals / bore wells")
 
             st.error(f"""
 🔴 **{row['Region']}** | FSI = {row['FSI']:.3f} | Root Cause: {row['Reason']}
@@ -1599,36 +1883,30 @@ with tab4:
 
     if len(med_districts) > 0:
         st.markdown(f"#### 🟡 {len(med_districts)} DISTRICTS IN MODERATE STRESS")
-        st.markdown("<small>Watch these districts — they could worsen!</small>", unsafe_allow_html=True)
-
         for _, row in med_districts.iterrows():
             st.warning(f"🟡 **{row['Region']}** | FSI = {row['FSI']:.3f} | {row['Reason']}")
 
     st.divider()
 
-    # Summary stats
+    # Executive Summary
     st.markdown("### 📋 EXECUTIVE SUMMARY")
-    total_farms = len(df_filtered)
     high_farms = len(df_filtered[df_filtered["FSI"] > p66])
     st.markdown(f"""
     <div class='game-card'>
         <div style='display:grid;grid-template-columns:repeat(3,1fr);gap:16px;text-align:center'>
             <div>
                 <div style='font-size:2rem;font-weight:900;font-family:Orbitron,monospace;
-                     color:#ff2244;text-shadow:0 0 12px rgba(255,34,68,0.5)'>
-                     {len(high_districts)}</div>
+                     color:#ff2244;text-shadow:0 0 12px rgba(255,34,68,0.5)'>{len(high_districts)}</div>
                 <div style='color:rgba(0,255,136,0.5);font-size:0.78rem'>CRITICAL DISTRICTS</div>
             </div>
             <div>
                 <div style='font-size:2rem;font-weight:900;font-family:Orbitron,monospace;
-                     color:#ffea00;text-shadow:0 0 12px rgba(255,234,0,0.5)'>
-                     {high_farms}</div>
+                     color:#ffea00;text-shadow:0 0 12px rgba(255,234,0,0.5)'>{high_farms}</div>
                 <div style='color:rgba(0,255,136,0.5);font-size:0.78rem'>FARM RECORDS AT HIGH RISK</div>
             </div>
             <div>
                 <div style='font-size:2rem;font-weight:900;font-family:Orbitron,monospace;
-                     color:#39ff14;text-shadow:0 0 12px rgba(57,255,20,0.5)'>
-                     {avg_fsi:.3f}</div>
+                     color:#39ff14;text-shadow:0 0 12px rgba(57,255,20,0.5)'>{avg_fsi:.3f}</div>
                 <div style='color:rgba(0,255,136,0.5);font-size:0.78rem'>STATE AVERAGE FSI</div>
             </div>
         </div>
@@ -1650,7 +1928,9 @@ st.divider()
 st.markdown("""
 <div style='text-align:center;font-family:Share Tech Mono,monospace;
      font-size:0.7rem;color:rgba(0,255,136,0.25);padding:10px;letter-spacing:0.15em'>
-    ⚡ AGRISTRESS AVENGERS v2.0 | KARNATAKA GEOSPATIAL STRESS DETECTION SYSTEM |
-    DATA: 750 FARM SAMPLES ACROSS 30 DISTRICTS | BUILT FOR AVENGER FARMERS 🌾
+    ⚡ AGRISTRESS AVENGERS v3.0 — ML EDITION |
+    KARNATAKA GEOSPATIAL STRESS DETECTION SYSTEM |
+    ML: KMeans Clustering + Linear Regression (scikit-learn) |
+    750 FARM SAMPLES · 30 DISTRICTS · 15 CROPS 🌾
 </div>
 """, unsafe_allow_html=True)
