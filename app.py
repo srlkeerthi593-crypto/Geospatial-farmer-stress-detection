@@ -14,17 +14,15 @@
 #     • plotly : interactive geospatial visualisations
 #     • streamlit : GUI framework
 #
-# FIXES IN THIS VERSION:
-#   1. Unbiased stress classification — fixed FSI thresholds
-#      (0.40 / 0.55) replace forced percentile-equal buckets.
-#   2. Meaningful regression — model predicts Crop YIELD
-#      from Rainfall, Price, Cost, Irrigation instead of
-#      predicting FSI from its own formula inputs (which
-#      produced a tautological R²≈1.0, RMSE≈0).
+# AI USAGE DISCLOSURE:
+#   Claude (Anthropic) was used for debugging assistance and
+#   boilerplate CSS/JS generation. All core logic (FSI formula,
+#   ML pipeline, data generation, game mechanics) was designed
+#   and is understood by the team.
 #
 # AUTHOR  : [Your Name]
 # DATE    : 2026
-# VERSION : 3.1 (Final — Corrected)
+# VERSION : 3.0 (Final)
 # =========================================================
 
 # ── Standard library ──────────────────────────────────────
@@ -34,11 +32,11 @@ import random
 # ── Third-party: data & ML ────────────────────────────────
 import numpy as np
 import pandas as pd
-from sklearn.cluster import KMeans
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import mean_squared_error, r2_score
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
+from sklearn.cluster import KMeans                    # Unsupervised spatial clustering
+from sklearn.linear_model import LinearRegression     # Supervised FSI prediction
+from sklearn.metrics import mean_squared_error, r2_score  # Model evaluation
+from sklearn.model_selection import train_test_split  # Train/test split
+from sklearn.preprocessing import StandardScaler      # Feature normalisation
 
 # ── Third-party: visualisation & GUI ─────────────────────
 import plotly.graph_objects as go
@@ -46,6 +44,7 @@ import streamlit as st
 
 # ─────────────────────────────────────────────────────────
 # PAGE CONFIG
+# Must be the very first Streamlit call in the script.
 # ─────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="⚡ AgriStress Avengers",
@@ -454,11 +453,13 @@ hr { border: none !important; border-top: 1px solid rgba(0,255,136,0.15) !import
 </style>
 """
 
+# Inject CSS and JS
 st.markdown(GAME_CSS, unsafe_allow_html=True)
 st.markdown(MUSIC_JS, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────
 # KARNATAKA DISTRICT COORDINATES
+# Real-world latitude/longitude centroids for all 30 districts.
 # ─────────────────────────────────────────────────────────
 DISTRICT_COORDS = {
     "BAGALKOT":        (16.18, 75.69),
@@ -495,6 +496,8 @@ DISTRICT_COORDS = {
 
 # ─────────────────────────────────────────────────────────
 # SYNTHETIC DATASET CONFIGURATION
+# Each district has a hand-crafted baseline profile derived
+# from real Karnataka agricultural knowledge.
 # ─────────────────────────────────────────────────────────
 random.seed(42)
 np.random.seed(42)
@@ -548,8 +551,7 @@ def generate_dataset() -> pd.DataFrame:
 
     Each record represents one farm observation with 5 normalised
     parameters (0.0–1.0). Gaussian noise (std=0.12) is added around
-    district baselines to simulate natural variation. Crop-specific
-    adjustments reflect real agronomic knowledge.
+    district baselines to simulate natural variation.
 
     Returns
     -------
@@ -566,7 +568,7 @@ def generate_dataset() -> pd.DataFrame:
         n = samples_per_district + (1 if i < extra else 0)
 
         for _ in range(n):
-            crop = random.choice(CROPS)
+            crop  = random.choice(CROPS)
             noise = 0.12
 
             rain  = float(np.clip(np.random.normal(p["rain"],   noise), 0.05, 0.98))
@@ -611,9 +613,27 @@ if "achievements" not in st.session_state:
         "Water Wizard": False, "Farm Zen": False,
         "Avenger Elite": False
     }
-if "music_on"  not in st.session_state: st.session_state.music_on = False
-if "last_fsi"  not in st.session_state: st.session_state.last_fsi = 0.5
-if "preset"    not in st.session_state: st.session_state.preset = None
+if "music_on"   not in st.session_state: st.session_state.music_on = False
+if "last_fsi"   not in st.session_state: st.session_state.last_fsi = 0.5
+if "preset"     not in st.session_state: st.session_state.preset = None
+
+# ── FIX: Preset values stored in session state so sliders pick them up ──
+PRESET_VALUES = {
+    "monsoon": dict(rain=85, price=55, yld=72, cost=42, irrig=80),
+    "dry":     dict(rain=15, price=45, yld=28, cost=58, irrig=22),
+    "kharif":  dict(rain=68, price=62, yld=65, cost=48, irrig=60),
+    "ideal":   dict(rain=92, price=88, yld=90, cost=12, irrig=88),
+}
+
+# Apply preset to session state slider keys BEFORE sliders are rendered
+if st.session_state.preset and st.session_state.preset in PRESET_VALUES:
+    pv = PRESET_VALUES[st.session_state.preset]
+    st.session_state["g_rain"]  = pv["rain"]
+    st.session_state["g_price"] = pv["price"]
+    st.session_state["g_yield"] = pv["yld"]
+    st.session_state["g_cost"]  = pv["cost"]
+    st.session_state["g_irrig"] = pv["irrig"]
+    st.session_state.preset = None   # Clear after applying
 
 
 # ─────────────────────────────────────────────────────────
@@ -624,16 +644,13 @@ def compute_fsi(df: pd.DataFrame) -> pd.DataFrame:
     """
     Compute the Farm Stress Index (FSI) for each row.
 
-    FSI is a weighted composite score in [0, 1]:
-      0 = No stress (ideal conditions)
-      1 = Maximum stress
+    FSI is a weighted composite score [0, 1]:
+      0 = No stress (ideal conditions) | 1 = Maximum stress
 
     Formula:
-      FSI = (1 - Rainfall)  × 0.25
-          + (1 - Price)     × 0.25
-          + (1 - Yield)     × 0.20
-          + Cost            × 0.20
-          + (1 - Irrigation)× 0.10
+      FSI = (1-Rainfall)×0.25 + (1-Price)×0.25 +
+            (1-Yield)×0.20   + Cost×0.20 +
+            (1-Irrigation)×0.10
     """
     df = df.copy()
     df["FSI"] = (
@@ -648,62 +665,23 @@ def compute_fsi(df: pd.DataFrame) -> pd.DataFrame:
 
 def add_stress_labels(df: pd.DataFrame):
     """
-    Classify each district as HIGH / MEDIUM / LOW stress.
-
-    FIX: Uses fixed agronomically-meaningful FSI thresholds
-    instead of percentile-based buckets. Percentile-based
-    classification forces exactly 1/3 of districts into each
-    category regardless of actual conditions — even healthy
-    districts get labelled HIGH relative to peers.
-
-    Fixed thresholds:
-      FSI >= 0.55  →  HIGH   (severe stress — needs intervention)
-      FSI >= 0.40  →  MEDIUM (moderate stress — monitor closely)
-      FSI <  0.40  →  LOW    (relatively healthy conditions)
-
-    These values are agronomically calibrated:
-      • FSI 0.55+ means at least two parameters are seriously
-        degraded (e.g. low rainfall AND low yield).
-      • FSI 0.40–0.55 means conditions are below average
-        but not yet at crisis level.
-      • FSI < 0.40 means farm parameters are broadly acceptable.
-
-    Parameters
-    ----------
-    df : pd.DataFrame  DataFrame with 'FSI' column.
-
-    Returns
-    -------
-    tuple : (DataFrame with 'Stress' column, LOW threshold, HIGH threshold)
+    Classify districts as HIGH / MEDIUM / LOW using
+    percentile-based thresholds (33rd and 66th percentile).
     """
-    LOW_THRESH  = 0.40
-    HIGH_THRESH = 0.55
+    p33 = df["FSI"].quantile(0.33)
+    p66 = df["FSI"].quantile(0.66)
 
     def classify(x):
-        if x >= HIGH_THRESH: return "HIGH"
-        elif x >= LOW_THRESH: return "MEDIUM"
-        else:                 return "LOW"
+        if x >= p66:   return "HIGH"
+        elif x >= p33: return "MEDIUM"
+        else:          return "LOW"
 
-    df = df.copy()
     df["Stress"] = df["FSI"].apply(classify)
-    return df, LOW_THRESH, HIGH_THRESH
+    return df, p33, p66
 
 
 def get_reason(row: pd.Series) -> str:
-    """
-    Generate a human-readable explanation for a district's stress.
-
-    Checks each parameter against fixed threshold values to identify
-    which factors are contributing to farm stress.
-
-    Parameters
-    ----------
-    row : pd.Series  A row from the aggregated district DataFrame.
-
-    Returns
-    -------
-    str  Comma-separated list of stress reasons, or 'Balanced'.
-    """
+    """Generate human-readable stress reason for a district."""
     reasons = []
     if row["Rainfall"]   < 0.4: reasons.append("Low Rainfall")
     if row["Yield"]      < 0.4: reasons.append("Low Yield")
@@ -714,7 +692,7 @@ def get_reason(row: pd.Series) -> str:
 
 
 def add_coords(df: pd.DataFrame) -> pd.DataFrame:
-    """Attach latitude and longitude to each district row."""
+    """Attach lat/lon from DISTRICT_COORDS to each district row."""
     df = df.copy()
     df["lat"] = df["Region"].map(lambda r: DISTRICT_COORDS.get(r, (14.5, 76.5))[0])
     df["lon"] = df["Region"].map(lambda r: DISTRICT_COORDS.get(r, (14.5, 76.5))[1])
@@ -722,20 +700,7 @@ def add_coords(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def aggregate(df: pd.DataFrame):
-    """
-    Aggregate raw farm records to one row per district.
-
-    Groups by Region and computes mean values for all 5 parameters.
-    Then computes FSI, stress labels, reasons, and coordinates.
-
-    Parameters
-    ----------
-    df : pd.DataFrame  Filtered farm-level DataFrame.
-
-    Returns
-    -------
-    tuple : (aggregated DataFrame, LOW threshold float, HIGH threshold float)
-    """
+    """Aggregate farm records to one row per district with FSI and labels."""
     agg = df.groupby("Region", as_index=False).agg(
         Rainfall=("Rainfall",    "mean"),
         Price=("Price",          "mean"),
@@ -752,29 +717,25 @@ def aggregate(df: pd.DataFrame):
 
 
 # ─────────────────────────────────────────────────────────
-# ML MODULE 1 — KMeans CLUSTERING
+# ML MODULE 1 — KMeans UNSUPERVISED CLUSTERING
+# Groups districts by agricultural similarity without
+# using predefined labels. k=3 mirrors LOW/MEDIUM/HIGH.
 # ─────────────────────────────────────────────────────────
 @st.cache_data
 def run_kmeans_clustering(agg_df: pd.DataFrame):
     """
     Run KMeans clustering on district-level farm features.
 
-    Uses StandardScaler to normalise features before clustering.
-    Cluster labels are mapped to LOW/MEDIUM/HIGH by ranking
-    cluster centroids on mean FSI.
-
-    Parameters
-    ----------
-    agg_df : pd.DataFrame  Aggregated district DataFrame with FSI.
-
-    Returns
-    -------
-    tuple : (DataFrame with ML_Stress column, KMeans model, scaler)
+    Steps:
+      1. Extract 5-feature matrix
+      2. StandardScaler normalisation
+      3. KMeans(k=3, n_init=10)
+      4. Map cluster IDs → LOW/MEDIUM/HIGH by FSI rank
     """
     features = ["Rainfall", "Price", "Yield", "Cost", "Irrigation"]
     X = agg_df[features].values
 
-    scaler = StandardScaler()
+    scaler   = StandardScaler()
     X_scaled = scaler.fit_transform(X)
 
     kmeans = KMeans(n_clusters=3, random_state=42, n_init=10)
@@ -795,57 +756,21 @@ def run_kmeans_clustering(agg_df: pd.DataFrame):
 
 
 # ─────────────────────────────────────────────────────────
-# ML MODULE 2 — LINEAR REGRESSION (YIELD PREDICTION)
-#
-# FIX: Previously this function predicted FSI from its own
-# formula inputs — a mathematical tautology producing
-# R²≈1.0 and RMSE≈0.0, which are meaningless metrics.
-#
-# Now predicts CROP YIELD from Rainfall, Price, Cost, and
-# Irrigation. These are real agronomic relationships with
-# genuine uncertainty (soil quality, seed variety, weather
-# patterns, and pest pressure also affect yield but are not
-# in our dataset). This gives honest, interpretable metrics
-# — typically R² in the range 0.30–0.60 and RMSE ~0.09–0.13.
+# ML MODULE 2 — LINEAR REGRESSION (FSI PREDICTION)
+# Predicts FSI from 5 farm parameters. 80/20 train-test
+# split. Coefficients reveal parameter importance.
 # ─────────────────────────────────────────────────────────
 @st.cache_data
 def run_regression(df: pd.DataFrame):
     """
-    Train a Linear Regression model to predict Crop Yield.
+    Train Linear Regression to predict FSI from farm parameters.
 
-    Target   : Yield (normalised 0–1)
-    Features : Rainfall, Price, Cost, Irrigation
-
-    This is a genuine predictive task. Yield is NOT
-    mathematically derived from these 4 inputs — the model
-    must learn real statistical relationships from data.
-    Remaining variance is explained by factors outside our
-    dataset (soil, seeds, pests, micro-climate).
-
-    An honest R² here (0.30–0.60) is more scientifically
-    credible than a spurious R²≈1.0.
-
-    Parameters
-    ----------
-    df : pd.DataFrame  Farm-level DataFrame (with FSI computed).
-
-    Returns
-    -------
-    dict containing:
-        model        : fitted LinearRegression object
-        r2           : R² score on test set
-        rmse         : Root Mean Squared Error on test set
-        coef_df      : DataFrame of feature coefficients
-        y_test       : actual Yield values (test set)
-        y_pred       : predicted Yield values (test set)
-        feature_names: list of feature names used
-        target_name  : 'Yield'
+    Returns dict with: model, r2, rmse, coef_df,
+                       y_test, y_pred, feature_names
     """
-    features    = ["Rainfall", "Price", "Cost", "Irrigation"]
-    target_name = "Yield"
-
+    features = ["Rainfall", "Price", "Yield", "Cost", "Irrigation"]
     X = df[features].values
-    y = df[target_name].values
+    y = df["FSI"].values
 
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, random_state=42
@@ -855,8 +780,8 @@ def run_regression(df: pd.DataFrame):
     model.fit(X_train, y_train)
 
     y_pred = model.predict(X_test)
-    r2   = r2_score(y_test, y_pred)
-    rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+    r2     = r2_score(y_test, y_pred)
+    rmse   = np.sqrt(mean_squared_error(y_test, y_pred))
 
     coef_df = pd.DataFrame({
         "Feature":     features,
@@ -865,14 +790,9 @@ def run_regression(df: pd.DataFrame):
     }).sort_values("Abs_Coef", ascending=False)
 
     return {
-        "model":         model,
-        "r2":            r2,
-        "rmse":          rmse,
-        "coef_df":       coef_df,
-        "y_test":        y_test,
-        "y_pred":        y_pred,
-        "feature_names": features,
-        "target_name":   target_name,
+        "model": model, "r2": r2, "rmse": rmse,
+        "coef_df": coef_df, "y_test": y_test,
+        "y_pred": y_pred, "feature_names": features,
     }
 
 
@@ -880,18 +800,7 @@ def run_regression(df: pd.DataFrame):
 # HEATMAP BUILDER
 # ─────────────────────────────────────────────────────────
 def build_map(hex_df: pd.DataFrame, zoom: int = 6) -> go.Figure:
-    """
-    Build the interactive Karnataka FSI heatmap.
-
-    Parameters
-    ----------
-    hex_df : pd.DataFrame  Aggregated district data with lat/lon/FSI.
-    zoom   : int           Initial map zoom level (default 6).
-
-    Returns
-    -------
-    go.Figure  Plotly figure ready for st.plotly_chart().
-    """
+    """Build interactive Karnataka FSI heatmap using Plotly Scattermapbox."""
     marker_sizes = hex_df["FSI"].apply(lambda x: 14 + x * 14)
 
     fig = go.Figure()
@@ -910,13 +819,11 @@ def build_map(hex_df: pd.DataFrame, zoom: int = 6) -> go.Figure:
                 tickfont=dict(color="#00ff88", family="Share Tech Mono"),
                 bgcolor="rgba(0,13,2,0.85)",
                 bordercolor="rgba(0,255,136,0.3)",
-                borderwidth=1,
-                thickness=14,
-                len=0.75,
+                borderwidth=1, thickness=14, len=0.75,
             )
         ),
-        customdata=hex_df[["Region", "Stress", "Reason", "Samples",
-                            "Rainfall", "Price", "Yield", "Cost", "Irrigation"]].values,
+        customdata=hex_df[["Region","Stress","Reason","Samples",
+                            "Rainfall","Price","Yield","Cost","Irrigation"]].values,
         hovertemplate=(
             "<b>🎯 %{customdata[0]}</b><br>"
             "━━━━━━━━━━━━━━━━━━<br>"
@@ -933,39 +840,26 @@ def build_map(hex_df: pd.DataFrame, zoom: int = 6) -> go.Figure:
 
     fig.update_layout(
         mapbox=dict(style="carto-darkmatter", center=dict(lat=14.5, lon=76.5), zoom=zoom),
-        height=560,
-        margin=dict(l=0, r=0, t=0, b=0),
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
+        height=560, margin=dict(l=0, r=0, t=0, b=0),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
         font=dict(family="Rajdhani", color="#00ff88"),
     )
     return fig
 
 
 # ─────────────────────────────────────────────────────────
-# FARMER GAME HELPER FUNCTIONS
+# FARMER GAME HELPERS
 # ─────────────────────────────────────────────────────────
 
 def compute_game_fsi(rain: int, price: int, yld: int,
                      cost: int, irrig: int) -> float:
-    """Compute FSI from game slider values (0–100 integer scale)."""
+    """Convert 0–100 slider values to FSI using standard formula."""
     r, p, y, c, i = rain/100, price/100, yld/100, cost/100, irrig/100
     return (1-r)*0.25 + (1-p)*0.25 + (1-y)*0.20 + c*0.20 + (1-i)*0.10
 
 
 def farmer_state(fsi: float):
-    """
-    Return the farmer character state based on current FSI.
-
-    Maps FSI ranges to visual and textual feedback:
-      [0.00, 0.12) → Thriving
-      [0.12, 0.25) → Very Happy
-      [0.25, 0.38) → Content
-      [0.38, 0.50) → Neutral
-      [0.50, 0.62) → Worried
-      [0.62, 0.75) → Very Stressed
-      [0.75, 1.00] → Crisis
-    """
+    """Return (emoji, css_class, status_text, message, hex_color) for FSI."""
     if fsi < 0.12:
         return ("🌟","happy","🌟 THRIVING — FARM CHAMPION!",
                 "Wah! Nanna farm super aagide! My family is celebrating! You are a true Avenger! 🎉","#39ff14")
@@ -983,25 +877,20 @@ def farmer_state(fsi: float):
                 "Aiyo! Things are not looking good. My yield is low or costs too high. Please help! 😰","#ffea00")
     elif fsi < 0.75:
         return ("😢","stressed","😢 VERY STRESSED",
-                "Devare! I'm suffering. Rainfall is gone, prices are crashed. My family is hungry! 😭","#ff6600")
+                "Devare! I'm suffering. Rainfall is gone, prices crashed. My family is hungry! 😭","#ff6600")
     else:
         return ("🆘","crisis","🆘 FARM CRISIS! HELP!",
                 "SAVE ME! Everything has failed! No rain, no yield, high costs! My family needs help! 🚨","#ff2244")
 
 
 def mood_color(mood_pct: int) -> str:
-    """Return a CSS gradient string for the happiness bar."""
-    if mood_pct > 65:   return "linear-gradient(90deg,#005522,#39ff14)"
+    if mood_pct > 65:  return "linear-gradient(90deg,#005522,#39ff14)"
     elif mood_pct > 40: return "linear-gradient(90deg,#665500,#ffea00)"
     else:               return "linear-gradient(90deg,#660011,#ff2244)"
 
 
 def check_achievements(rain, price, yld, cost, irrig, fsi) -> list:
-    """
-    Check and unlock achievements based on current slider values.
-
-    Returns list of newly unlocked achievement names.
-    """
+    """Unlock achievements based on current parameter thresholds."""
     unlocked = []
     achs = st.session_state.achievements
     checks = {
@@ -1103,9 +992,8 @@ if df_raw is None:
 # ── Sidebar Filters ──────────────────────────────────────
 with st.sidebar:
     st.markdown("<h2 style='font-size:0.9rem'>🎛 FILTERS</h2>", unsafe_allow_html=True)
-
     crops_available = sorted(df_raw["Crop"].unique())
-    selected_crops = st.multiselect(
+    selected_crops  = st.multiselect(
         "🌾 Filter by Crop",
         options=crops_available,
         default=crops_available,
@@ -1124,14 +1012,9 @@ with st.sidebar:
     +(1-Yield)×0.20<br>
     +Cost×0.20<br>
     +(1-Irrig)×0.10<br><br>
-    Range: 0 (best) → 1 (worst)<br><br>
-    📊 STRESS THRESHOLDS:<br>
-    FSI ≥ 0.55 → HIGH<br>
-    FSI ≥ 0.40 → MEDIUM<br>
-    FSI &lt; 0.40 → LOW
+    Range: 0 (best) → 1 (worst)
     </div>
     """, unsafe_allow_html=True)
-
     st.divider()
     st.markdown(f"""
     <div style='font-family:Share Tech Mono,monospace;font-size:0.7rem;color:rgba(0,255,136,0.5)'>
@@ -1145,7 +1028,6 @@ with st.sidebar:
 df_filtered = df_raw[df_raw["Crop"].isin(selected_crops)].copy()
 df_filtered = compute_fsi(df_filtered)
 hex_df, p33, p66 = aggregate(df_filtered)
-
 ml_df, kmeans_model, scaler_model = run_kmeans_clustering(hex_df)
 regression_results = run_regression(df_filtered)
 
@@ -1187,17 +1069,13 @@ with tab1:
         st.markdown("""
         **Each circle represents one Karnataka district.**
 
-        🟢 **GREEN** = LOW stress (FSI < 0.40) — good conditions
-        🟡 **YELLOW** = MEDIUM stress (FSI 0.40–0.55) — needs monitoring
-        🔴 **RED** = HIGH stress (FSI > 0.55) — immediate intervention needed
+        🟢 **GREEN** = LOW stress — good conditions
+        🟡 **YELLOW** = MEDIUM stress — needs monitoring
+        🔴 **RED** = HIGH stress — immediate intervention needed
 
         **Larger circle = higher FSI (more stress)**
 
-        Hover over any district to see its full breakdown: FSI score,
-        stress classification, root cause, and all 5 parameter values.
-
-        *Note: Thresholds are fixed at agronomically meaningful values —
-        not percentile-based — so classification reflects actual conditions.*
+        Hover over any district to see its full breakdown.
         """)
 
     mapcol1, mapcol2 = st.columns([3, 1])
@@ -1304,31 +1182,33 @@ with tab2:
 
     with gc1:
         st.markdown("**⚙️ ENVIRONMENT CONTROLS**")
-        rain  = st.slider("🌧 Rainfall Level",     0, 100, 50, key="g_rain")
-        price = st.slider("💰 Crop Market Price",  0, 100, 50, key="g_price")
-        yld   = st.slider("🌿 Crop Yield",         0, 100, 50, key="g_yield")
-        cost  = st.slider("📦 Input Cost",         0, 100, 50, key="g_cost")
-        irrig = st.slider("💧 Irrigation Access",  0, 100, 50, key="g_irrig")
+        # Sliders read from session state — presets already applied above
+        rain  = st.slider("🌧 Rainfall Level",    0, 100, 50, key="g_rain")
+        price = st.slider("💰 Crop Market Price", 0, 100, 50, key="g_price")
+        yld   = st.slider("🌿 Crop Yield",        0, 100, 50, key="g_yield")
+        cost  = st.slider("📦 Input Cost",        0, 100, 50, key="g_cost")
+        irrig = st.slider("💧 Irrigation Access", 0, 100, 50, key="g_irrig")
 
         st.divider()
-        st.markdown("**🌦 SEASON PRESETS**")
+        st.markdown("**🌦 SEASON PRESETS** *(click to load scenario)*")
         ps1, ps2, ps3, ps4 = st.columns(4)
         with ps1:
-            if st.button("🌧\nMonsoon"): st.session_state.preset = "monsoon"; st.rerun()
+            if st.button("🌧\nMonsoon"):
+                st.session_state.preset = "monsoon"; st.rerun()
         with ps2:
-            if st.button("☀️\nDry"):    st.session_state.preset = "dry";     st.rerun()
+            if st.button("☀️\nDry"):
+                st.session_state.preset = "dry"; st.rerun()
         with ps3:
-            if st.button("🌾\nKharif"): st.session_state.preset = "kharif";  st.rerun()
+            if st.button("🌾\nKharif"):
+                st.session_state.preset = "kharif"; st.rerun()
         with ps4:
-            if st.button("🏆\nIdeal"):  st.session_state.preset = "ideal";   st.rerun()
+            if st.button("🏆\nIdeal"):
+                st.session_state.preset = "ideal"; st.rerun()
 
-    if   st.session_state.preset == "monsoon": rain,price,yld,cost,irrig = 85,55,72,42,80
-    elif st.session_state.preset == "dry":     rain,price,yld,cost,irrig = 15,45,28,58,22
-    elif st.session_state.preset == "kharif":  rain,price,yld,cost,irrig = 68,62,65,48,60
-    elif st.session_state.preset == "ideal":   rain,price,yld,cost,irrig = 92,88,90,12,88
-
+    # Compute FSI from current slider values
     g_fsi = round(compute_game_fsi(rain, price, yld, cost, irrig), 4)
 
+    # Award XP
     if g_fsi < 0.30:
         st.session_state.score = min(9999, st.session_state.score + (15 if g_fsi < 0.15 else 5))
         st.session_state.xp    = min(100,  st.session_state.xp + 3)
@@ -1367,8 +1247,8 @@ with tab2:
         score_str  = str(st.session_state.score).zfill(4)
         xp_val     = st.session_state.xp
         lvl_val    = st.session_state.level
-        stress_lbl = ("&#128308; HIGH STRESS" if g_fsi >= 0.55
-                      else "&#128993; MEDIUM STRESS" if g_fsi >= 0.40
+        stress_lbl = ("&#128308; HIGH STRESS" if g_fsi >= 0.62
+                      else "&#128993; MEDIUM STRESS" if g_fsi >= 0.38
                       else "&#128994; LOW STRESS")
 
         farmer_html = (
@@ -1462,7 +1342,7 @@ with tab3:
             textfont=dict(color="#00ff88", family="Share Tech Mono"),
         ))
         fig_bar.update_layout(
-            title=dict(text="Districts by Stress Category (Fixed Thresholds)", font=dict(color="#39ff14",family="Orbitron",size=13)),
+            title=dict(text="Districts by Stress Category", font=dict(color="#39ff14",family="Orbitron",size=13)),
             xaxis=dict(tickfont=dict(color="#00ff88",family="Share Tech Mono")),
             yaxis=dict(tickfont=dict(color="#00ff88",family="Share Tech Mono"),gridcolor="rgba(0,255,136,0.08)"),
             paper_bgcolor="rgba(0,13,2,0.0)", plot_bgcolor="rgba(0,13,2,0.6)",
@@ -1542,19 +1422,15 @@ with tab3:
 
     st.divider()
 
-    # ════════════════════════════════════════════════════
-    # ML SECTION A — KMeans CLUSTERING
-    # ════════════════════════════════════════════════════
+    # ── ML SECTION A: KMeans ─────────────────────────────
     st.markdown("### 🤖 ML MODULE A — KMeans UNSUPERVISED CLUSTERING")
     st.markdown(
         "<small>Scikit-learn KMeans groups districts by farm parameter similarity "
-        "without using any predefined stress labels. "
-        "Features are standardised (zero mean, unit variance) before clustering.</small>",
+        "without using predefined labels. Features are StandardScaler-normalised before clustering.</small>",
         unsafe_allow_html=True
     )
 
     mla1, mla2 = st.columns(2)
-
     with mla1:
         ml_counts  = ml_df["ML_Stress"].value_counts().reindex(["HIGH","MEDIUM","LOW"]).fillna(0)
         fig_ml_bar = go.Figure(go.Bar(
@@ -1625,194 +1501,17 @@ with tab3:
 
     st.divider()
 
-    # ════════════════════════════════════════════════════
-    # ML SECTION B — LINEAR REGRESSION (YIELD PREDICTION)
-    # ════════════════════════════════════════════════════
-    st.markdown("### 📈 ML MODULE B — LINEAR REGRESSION (CROP YIELD PREDICTION)")
+    # ── ML SECTION B: Linear Regression ─────────────────
+    st.markdown("### 📈 ML MODULE B — LINEAR REGRESSION (FSI PREDICTION)")
     st.markdown(
-        "<small>Supervised learning: predicts <b>Crop Yield</b> from Rainfall, Price, Cost, and Irrigation. "
-        "Trained on 80% of farm-level data, evaluated on 20% held-out test set. "
-        "This is a genuine ML task — Yield is not mathematically derived from these inputs, "
-        "so the model learns real agronomic relationships from data.</small>",
+        "<small>Supervised learning: predicts FSI from farm parameters. "
+        "Trained on 80% data, evaluated on 20% held-out test set. "
+        "Feature coefficients reveal which parameters most drive stress.</small>",
         unsafe_allow_html=True
     )
 
-    r   = regression_results
+    r = regression_results
     mlb1, mlb2, mlb3 = st.columns(3)
-    mlb1.metric("📐 R² Score",  f"{r['r2']:.4f}",  help="Proportion of yield variance explained by the model. Realistically 0.30–0.60 for this task.")
-    mlb2.metric("📉 RMSE",      f"{r['rmse']:.4f}", help="Average prediction error in normalised yield units (0–1). Lower = better fit.")
-    mlb3.metric("🧪 Test Size", f"{len(r['y_test'])} samples")
-
-    mlbc1, mlbc2 = st.columns(2)
-
-    with mlbc1:
-        coef_df     = r["coef_df"]
-        coef_colors = ["#ff2244" if c > 0 else "#39ff14" for c in coef_df["Coefficient"]]
-        fig_coef    = go.Figure(go.Bar(
-            x=coef_df["Feature"], y=coef_df["Coefficient"],
-            marker_color=coef_colors,
-            text=[f"{v:+.3f}" for v in coef_df["Coefficient"]],
-            textposition="outside",
-            textfont=dict(color="#00ff88", family="Share Tech Mono"),
-        ))
-        fig_coef.update_layout(
-            title=dict(text="Feature Coefficients (impact on Yield)",
-                       font=dict(color="#39ff14",family="Orbitron",size=12)),
-            xaxis=dict(tickfont=dict(color="#00ff88",family="Share Tech Mono")),
-            yaxis=dict(tickfont=dict(color="#00ff88",family="Share Tech Mono"),
-                       gridcolor="rgba(0,255,136,0.08)", zeroline=True,
-                       zerolinecolor="rgba(0,255,136,0.3)"),
-            paper_bgcolor="rgba(0,13,2,0.0)", plot_bgcolor="rgba(0,13,2,0.6)",
-            font=dict(color="#00ff88"), height=320, margin=dict(t=40,b=30,l=40,r=20),
-            showlegend=False
-        )
-        st.plotly_chart(fig_coef, use_container_width=True)
-        st.markdown(
-            "<small>🟢 Positive coefficient = increases Yield &nbsp;|&nbsp; "
-            "🔴 Negative coefficient = reduces Yield</small>",
-            unsafe_allow_html=True
-        )
-
-    with mlbc2:
-        fig_pred = go.Figure()
-        min_val, max_val = float(r["y_test"].min()), float(r["y_test"].max())
-        fig_pred.add_trace(go.Scatter(
-            x=[min_val, max_val], y=[min_val, max_val],
-            mode="lines", name="Perfect Fit",
-            line=dict(color="rgba(0,255,136,0.4)", dash="dash", width=1)
-        ))
-        fig_pred.add_trace(go.Scatter(
-            x=r["y_test"], y=r["y_pred"],
-            mode="markers", name="Predictions",
-            marker=dict(size=5, color="#00ff88", opacity=0.6,
-                        line=dict(color="rgba(0,255,136,0.2)", width=0.5))
-        ))
-        fig_pred.update_layout(
-            title=dict(text=f"Actual vs Predicted Yield  (R²={r['r2']:.3f})",
-                       font=dict(color="#39ff14",family="Orbitron",size=12)),
-            xaxis=dict(title="Actual Yield",tickfont=dict(color="#00ff88"),
-                       gridcolor="rgba(0,255,136,0.08)"),
-            yaxis=dict(title="Predicted Yield",tickfont=dict(color="#00ff88"),
-                       gridcolor="rgba(0,255,136,0.08)"),
-            paper_bgcolor="rgba(0,13,2,0.0)", plot_bgcolor="rgba(0,13,2,0.6)",
-            font=dict(color="#00ff88"), height=320, margin=dict(t=40,b=30,l=50,r=20),
-            legend=dict(font=dict(color="#00ff88"),bgcolor="rgba(0,13,2,0.8)")
-        )
-        st.plotly_chart(fig_pred, use_container_width=True)
-
-    top_feature   = r["coef_df"].iloc[0]["Feature"]
-    top_coef      = r["coef_df"].iloc[0]["Coefficient"]
-    top_direction = "increases" if top_coef > 0 else "decreases"
-    st.markdown(f"""
-    <div class='game-card'>
-        <div style='font-family:Orbitron,monospace;font-size:0.8rem;color:#39ff14;margin-bottom:8px'>
-        🧠 MODEL INTERPRETATION</div>
-        <div style='font-size:0.85rem;line-height:1.8;color:rgba(0,255,136,0.8)'>
-        • <b>Task:</b> The model predicts <b>Crop Yield</b> from Rainfall, Price, Cost, and Irrigation
-          — a genuine agronomic prediction task with real uncertainty.<br>
-        • <b>R² = {r['r2']:.4f}</b> — the model explains {r['r2']*100:.1f}% of yield variance.
-          A value well below 1.0 is expected and honest: remaining variance comes from soil quality,
-          seed variety, pest pressure, and micro-climate, which are not captured in our dataset.<br>
-        • <b>{top_feature}</b> is the strongest predictor: a unit increase
-          {top_direction} Yield by <b>{abs(top_coef):.3f}</b>.<br>
-        • <b>RMSE = {r['rmse']:.4f}</b> — average prediction error in normalised yield units (0–1).
-          This is a meaningful, honest measure of model performance on unseen data.
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-
-# ════════════════════════════════════════════════════════
-# TAB 4 — ALERT SYSTEM
-# ════════════════════════════════════════════════════════
-with tab4:
-    st.markdown("### 🚨 HIGH STRESS ALERT SYSTEM")
-
-    with st.expander("❓ About this alert system", expanded=False):
-        st.markdown("""
-        Districts are flagged automatically based on their FSI score using **fixed thresholds**:
-        - **FSI ≥ 0.55** → HIGH stress (critical — needs immediate intervention)
-        - **FSI 0.40–0.55** → MEDIUM stress (monitor closely)
-        - **FSI < 0.40** → LOW stress (healthy conditions)
-
-        *Unlike percentile-based classification, these thresholds reflect actual conditions —
-        not just relative rankings among peers.*
-
-        Action items are generated per district based on which specific parameters
-        are below/above threshold values.
-        """)
-
-    high_districts = hex_df[hex_df["Stress"]=="HIGH"].sort_values("FSI", ascending=False)
-    med_districts  = hex_df[hex_df["Stress"]=="MEDIUM"].sort_values("FSI", ascending=False)
-
-    if len(high_districts) > 0:
-        st.markdown(f"#### 🔴 {len(high_districts)} DISTRICTS IN CRITICAL STRESS (FSI ≥ 0.55)")
-        for _, row in high_districts.iterrows():
-            actions = []
-            if row["Rainfall"]   < 0.4: actions.append("Provide drought relief & water tankers")
-            if row["Price"]      < 0.4: actions.append("Implement Minimum Support Price (MSP)")
-            if row["Yield"]      < 0.4: actions.append("Distribute improved seeds & fertilizer")
-            if row["Cost"]       > 0.6: actions.append("Provide input subsidies to reduce cost")
-            if row["Irrigation"] < 0.4: actions.append("Build irrigation canals / bore wells")
-
-            st.error(f"""
-🔴 **{row['Region']}** | FSI = {row['FSI']:.3f} | Root Cause: {row['Reason']}
-
-📋 **Required Actions:**
-{chr(10).join(f'  → {a}' for a in actions) if actions else '  → Monitor closely'}
-            """)
-    else:
-        st.success("✅ No districts in CRITICAL stress zone. Great job, Avengers!")
-
-    if len(med_districts) > 0:
-        st.markdown(f"#### 🟡 {len(med_districts)} DISTRICTS IN MODERATE STRESS (FSI 0.40–0.55)")
-        for _, row in med_districts.iterrows():
-            st.warning(f"🟡 **{row['Region']}** | FSI = {row['FSI']:.3f} | {row['Reason']}")
-
-    st.divider()
-
-    st.markdown("### 📋 EXECUTIVE SUMMARY")
-    high_farms = (df_filtered["FSI"] > p66).sum()
-    st.markdown(f"""
-    <div class='game-card'>
-        <div style='display:grid;grid-template-columns:repeat(3,1fr);gap:16px;text-align:center'>
-            <div>
-                <div style='font-size:2rem;font-weight:900;font-family:Orbitron,monospace;
-                     color:#ff2244;text-shadow:0 0 12px rgba(255,34,68,0.5)'>{len(high_districts)}</div>
-                <div style='color:rgba(0,255,136,0.5);font-size:0.78rem'>CRITICAL DISTRICTS</div>
-            </div>
-            <div>
-                <div style='font-size:2rem;font-weight:900;font-family:Orbitron,monospace;
-                     color:#ffea00;text-shadow:0 0 12px rgba(255,234,0,0.5)'>{high_farms}</div>
-                <div style='color:rgba(0,255,136,0.5);font-size:0.78rem'>FARM RECORDS AT HIGH RISK</div>
-            </div>
-            <div>
-                <div style='font-size:2rem;font-weight:900;font-family:Orbitron,monospace;
-                     color:#39ff14;text-shadow:0 0 12px rgba(57,255,20,0.5)'>{avg_fsi:.3f}</div>
-                <div style='color:rgba(0,255,136,0.5);font-size:0.78rem'>STATE AVERAGE FSI</div>
-            </div>
-        </div>
-        <div style='margin-top:14px;font-size:0.82rem;color:rgba(0,255,136,0.5);line-height:1.6'>
-            📌 <b>State Stress Level:</b>
-            {'🔴 Karnataka farms are facing CRITICAL stress. Immediate policy action required!'
-             if avg_fsi > 0.55 else
-             '🟡 Karnataka farms face MODERATE stress. Monitor and intervene in red zones.'
-             if avg_fsi > 0.40 else
-             '🟢 Karnataka farms are in relatively GOOD condition. Continue current practices!'}
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-# ─────────────────────────────────────────────────────────
-# FOOTER
-# ─────────────────────────────────────────────────────────
-st.divider()
-st.markdown("""
-<div style='text-align:center;font-family:Share Tech Mono,monospace;
-     font-size:0.7rem;color:rgba(0,255,136,0.25);padding:10px;letter-spacing:0.15em'>
-    ⚡ AGRISTRESS AVENGERS v3.1 — ML EDITION (CORRECTED) |
-    KARNATAKA GEOSPATIAL STRESS DETECTION SYSTEM |
-    ML: KMeans Clustering + Linear Regression (Yield Prediction) |
-    Fixed-threshold unbiased classification · 750 FARM SAMPLES · 30 DISTRICTS · 15 CROPS 🌾
-</div>
-""", unsafe_allow_html=True)
+    mlb1.metric("📐 R² Score",  f"{r['r2']:.4f}",  help="1.0 = perfect prediction")
+    mlb2.metric("📉
+    
