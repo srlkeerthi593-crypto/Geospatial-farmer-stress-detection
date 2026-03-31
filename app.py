@@ -665,28 +665,29 @@ def compute_fsi(df: pd.DataFrame) -> pd.DataFrame:
 
 def add_stress_labels(df: pd.DataFrame):
     """
-    Classify districts as HIGH / MEDIUM / LOW using real
-    fixed FSI thresholds — NOT percentile-based.
+    Classify districts as HIGH / MEDIUM / LOW using meaningful
+    fixed FSI thresholds based on actual Karnataka data distribution.
 
-    FSI range is 0 (no stress) to 1 (maximum stress).
-    Thresholds derived from agronomic meaning:
-      FSI >= 0.50 -> HIGH   (farm is genuinely struggling)
-      FSI >= 0.40 -> MEDIUM (farm needs monitoring)
-      FSI <  0.40 -> LOW    (farm is doing well)
+    Actual FSI range across 30 districts: ~0.23 (Kodagu) to ~0.70 (Yadgir)
 
-    Districts classified purely by actual FSI value.
-    No forced equal distribution — unbiased classification.
+    Thresholds set at natural breakpoints in this real distribution:
+      FSI >= 0.58 -> HIGH   : severely stressed (drought-prone N. Karnataka)
+      FSI >= 0.43 -> MEDIUM : moderate stress (transitional districts)
+      FSI <  0.43 -> LOW    : low stress (Western Ghats / well-irrigated)
+
+    Expected unbiased split: ~8 HIGH, ~12 MEDIUM, ~10 LOW
+    Districts classified ONLY on their actual FSI value. No forced equal split.
     """
-    p33 = 0.40   # LOW/MEDIUM boundary
-    p66 = 0.50   # MEDIUM/HIGH boundary
+    LOW_MED  = 0.43   # LOW / MEDIUM boundary (data-driven breakpoint)
+    MED_HIGH = 0.58   # MEDIUM / HIGH boundary (data-driven breakpoint)
 
     def classify(x):
-        if x >= p66:   return "HIGH"
-        elif x >= p33: return "MEDIUM"
-        else:          return "LOW"
+        if x >= MED_HIGH:  return "HIGH"
+        elif x >= LOW_MED: return "MEDIUM"
+        else:              return "LOW"
 
     df["Stress"] = df["FSI"].apply(classify)
-    return df, p33, p66
+    return df, LOW_MED, MED_HIGH
 
 
 def get_reason(row: pd.Series) -> str:
