@@ -1,7 +1,19 @@
-streamlit
-pandas
-numpy
-plotly
-openpyxl
-h3==4.1.0
-sklearn
+# =========================================================
+# AgriStress Avengers — Requirements
+# MSC (AA) & PGD (SDS) Python Project Work 2026
+# Technical Track: Machine Learning (ML Track)
+# =========================================================
+
+# ── GUI Framework ─────────────────────────────────────────
+streamlit>=1.32.0
+
+# ── Data Wrangling ────────────────────────────────────────
+pandas>=2.0.0
+numpy>=1.26.0
+openpyxl>=3.1.0          # Required by pandas for .xlsx read/write
+
+# ── Machine Learning ──────────────────────────────────────
+scikit-learn>=1.4.0       # KMeans clustering + LinearRegression + metrics
+
+# ── Visualisation ─────────────────────────────────────────
+plotly>=5.20.0            # Interactive geospatial Scattermapbox + charts
