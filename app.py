@@ -34,7 +34,7 @@ import numpy as np
 import pandas as pd
 from sklearn.cluster import KMeans                    # Unsupervised spatial clustering
 from sklearn.linear_model import LinearRegression     # Supervised FSI prediction
-from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error  # Model evaluation
+from sklearn.metrics import mean_squared_error, r2_score  # Model evaluation
 from sklearn.model_selection import train_test_split  # Train/test split
 from sklearn.preprocessing import StandardScaler      # Feature normalisation
 
@@ -496,6 +496,8 @@ DISTRICT_COORDS = {
 
 # ─────────────────────────────────────────────────────────
 # SYNTHETIC DATASET CONFIGURATION
+# Each district has a hand-crafted baseline profile derived
+# from real Karnataka agricultural knowledge.
 # ─────────────────────────────────────────────────────────
 random.seed(42)
 np.random.seed(42)
@@ -548,25 +550,14 @@ def generate_dataset() -> pd.DataFrame:
     Generate 750 synthetic farm records for Karnataka.
 
     Each record represents one farm observation with 5 normalised
-    parameters (0.0-1.0). Gaussian noise (std=0.12) is added around
+    parameters (0.0–1.0). Gaussian noise (std=0.12) is added around
     district baselines to simulate natural variation.
-
-    ML NOTE — WHY FSI HAS A SMALL NOISE TERM:
-    FSI is computed as a weighted linear combination of 5 farm
-    parameters. In a perfect synthetic world this makes FSI
-    perfectly predictable (R²=1, RMSE≈0) — which is academically
-    unrealistic. Real-world FSI measurements carry ±1.5% reporting
-    error (data collection inconsistency, sensor rounding, surveyor
-    variance). A Gaussian noise term N(0, 0.015) is therefore added
-    to FSI after computation to simulate this real-world uncertainty.
-    This gives the Linear Regression a genuine prediction challenge:
-    R²≈0.99, RMSE≈0.015 — an excellent but honest model.
 
     Returns
     -------
     pd.DataFrame
         DataFrame with columns: Region, Crop, Rainfall, Price,
-        Cost, Yield, Irrigation, FSI.
+        Cost, Yield, Irrigation.
     """
     records = []
     samples_per_district = 750 // len(DISTRICTS)
@@ -596,25 +587,6 @@ def generate_dataset() -> pd.DataFrame:
                 cost  = min(cost + 0.08, 0.98)
                 price = min(price + 0.05, 0.98)
 
-            # Compute base FSI from the 5 parameters (standard formula)
-            fsi_base = (
-                (1 - rain)  * 0.25 +
-                (1 - price) * 0.25 +
-                (1 - yld)   * 0.20 +
-                cost        * 0.20 +
-                (1 - irrig) * 0.10
-            )
-
-            # Add realistic ±1.5% measurement noise to FSI.
-            # Justification: real agricultural surveys have data
-            # collection inconsistencies (rounding, surveyor error,
-            # instrument variance). Without this, FSI is a perfect
-            # linear function of features → R²=1.0, RMSE=0.0 which
-            # is unrealistic and trivial for ML to predict.
-            fsi_measured = float(np.clip(
-                fsi_base + np.random.normal(0, 0.015), 0.0, 1.0
-            ))
-
             records.append({
                 "Region":     district,
                 "Crop":       crop,
@@ -623,7 +595,6 @@ def generate_dataset() -> pd.DataFrame:
                 "Cost":       round(cost,  4),
                 "Yield":      round(yld,   4),
                 "Irrigation": round(irrig, 4),
-                "FSI":        round(fsi_measured, 4),
             })
 
     return pd.DataFrame(records)
@@ -646,6 +617,7 @@ if "music_on"   not in st.session_state: st.session_state.music_on = False
 if "last_fsi"   not in st.session_state: st.session_state.last_fsi = 0.5
 if "preset"     not in st.session_state: st.session_state.preset = None
 
+# ── FIX: Preset values stored in session state so sliders pick them up ──
 PRESET_VALUES = {
     "monsoon": dict(rain=85, price=55, yld=72, cost=42, irrig=80),
     "dry":     dict(rain=15, price=45, yld=28, cost=58, irrig=22),
@@ -653,6 +625,7 @@ PRESET_VALUES = {
     "ideal":   dict(rain=92, price=88, yld=90, cost=12, irrig=88),
 }
 
+# Apply preset to session state slider keys BEFORE sliders are rendered
 if st.session_state.preset and st.session_state.preset in PRESET_VALUES:
     pv = PRESET_VALUES[st.session_state.preset]
     st.session_state["g_rain"]  = pv["rain"]
@@ -660,7 +633,7 @@ if st.session_state.preset and st.session_state.preset in PRESET_VALUES:
     st.session_state["g_yield"] = pv["yld"]
     st.session_state["g_cost"]  = pv["cost"]
     st.session_state["g_irrig"] = pv["irrig"]
-    st.session_state.preset = None
+    st.session_state.preset = None   # Clear after applying
 
 
 # ─────────────────────────────────────────────────────────
@@ -671,24 +644,22 @@ def compute_fsi(df: pd.DataFrame) -> pd.DataFrame:
     """
     Compute the Farm Stress Index (FSI) for each row.
 
-    If the dataframe already has an 'FSI' column (from generate_dataset),
-    use that directly (preserves the measurement noise for ML realism).
-    Otherwise compute from the formula (used for aggregated district data).
+    FSI is a weighted composite score [0, 1]:
+      0 = No stress (ideal conditions) | 1 = Maximum stress
 
-    FSI formula:
-      FSI = (1-Rainfall)*0.25 + (1-Price)*0.25 +
-            (1-Yield)*0.20   + Cost*0.20 +
-            (1-Irrigation)*0.10
+    Formula:
+      FSI = (1-Rainfall)×0.25 + (1-Price)×0.25 +
+            (1-Yield)×0.20   + Cost×0.20 +
+            (1-Irrigation)×0.10
     """
     df = df.copy()
-    if "FSI" not in df.columns:
-        df["FSI"] = (
-            (1 - df["Rainfall"])   * 0.25 +
-            (1 - df["Price"])      * 0.25 +
-            (1 - df["Yield"])      * 0.20 +
-            df["Cost"]             * 0.20 +
-            (1 - df["Irrigation"]) * 0.10
-        )
+    df["FSI"] = (
+        (1 - df["Rainfall"])   * 0.25 +
+        (1 - df["Price"])      * 0.25 +
+        (1 - df["Yield"])      * 0.20 +
+        df["Cost"]             * 0.20 +
+        (1 - df["Irrigation"]) * 0.10
+    )
     return df
 
 
@@ -729,11 +700,7 @@ def add_coords(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def aggregate(df: pd.DataFrame):
-    """
-    Aggregate farm records to one row per district with FSI and labels.
-    FSI is re-computed from formula at district level (mean of raw params)
-    to avoid noise accumulation in the aggregated view.
-    """
+    """Aggregate farm records to one row per district with FSI and labels."""
     agg = df.groupby("Region", as_index=False).agg(
         Rainfall=("Rainfall",    "mean"),
         Price=("Price",          "mean"),
@@ -742,14 +709,7 @@ def aggregate(df: pd.DataFrame):
         Irrigation=("Irrigation","mean"),
         Samples=("Rainfall",     "count")
     )
-    # Recompute clean FSI from averaged parameters (no noise at district level)
-    agg["FSI"] = (
-        (1 - agg["Rainfall"])   * 0.25 +
-        (1 - agg["Price"])      * 0.25 +
-        (1 - agg["Yield"])      * 0.20 +
-        agg["Cost"]             * 0.20 +
-        (1 - agg["Irrigation"]) * 0.10
-    )
+    agg = compute_fsi(agg)
     agg, p33, p66 = add_stress_labels(agg)
     agg["Reason"] = agg.apply(get_reason, axis=1)
     agg = add_coords(agg)
@@ -760,13 +720,6 @@ def aggregate(df: pd.DataFrame):
 # ML MODULE 1 — KMeans UNSUPERVISED CLUSTERING
 # Groups districts by agricultural similarity without
 # using predefined labels. k=3 mirrors LOW/MEDIUM/HIGH.
-#
-# IMPROVEMENTS over naive defaults:
-#   n_init=20  : 20 random initialisations (up from 10) — finds
-#                better global minimum, especially critical with
-#                only 30 data points (districts).
-#   max_iter=500: Full convergence guaranteed.
-#   init='k-means++': Smarter seeding reduces bad initialisations.
 # ─────────────────────────────────────────────────────────
 @st.cache_data
 def run_kmeans_clustering(agg_df: pd.DataFrame):
@@ -776,8 +729,8 @@ def run_kmeans_clustering(agg_df: pd.DataFrame):
     Steps:
       1. Extract 5-feature matrix
       2. StandardScaler normalisation
-      3. KMeans(k=3, n_init=20, max_iter=500, init='k-means++')
-      4. Map cluster IDs -> LOW/MEDIUM/HIGH by FSI rank
+      3. KMeans(k=3, n_init=10)
+      4. Map cluster IDs → LOW/MEDIUM/HIGH by FSI rank
     """
     features = ["Rainfall", "Price", "Yield", "Cost", "Irrigation"]
     X = agg_df[features].values
@@ -785,13 +738,7 @@ def run_kmeans_clustering(agg_df: pd.DataFrame):
     scaler   = StandardScaler()
     X_scaled = scaler.fit_transform(X)
 
-    kmeans = KMeans(
-        n_clusters=3,
-        random_state=42,
-        n_init=20,          # Increased from 10 for more stable clustering
-        max_iter=500,       # Ensures full convergence
-        init="k-means++"    # Best practice initialisation
-    )
+    kmeans = KMeans(n_clusters=3, random_state=42, n_init=10)
     labels = kmeans.fit_predict(X_scaled)
 
     agg_df = agg_df.copy()
@@ -812,48 +759,14 @@ def run_kmeans_clustering(agg_df: pd.DataFrame):
 # ML MODULE 2 — LINEAR REGRESSION (FSI PREDICTION)
 # Predicts FSI from 5 farm parameters. 80/20 train-test
 # split. Coefficients reveal parameter importance.
-#
-# KEY ML IMPROVEMENTS:
-#
-# 1. FEATURE SCALING (StandardScaler before regression):
-#    Raw features are already 0-1 normalised, but scaling makes
-#    coefficients directly comparable across parameters to reveal
-#    TRUE relative importance. Without scaling, a feature with
-#    higher variance artificially gets a larger coefficient.
-#
-# 2. REALISTIC RMSE via FSI MEASUREMENT NOISE:
-#    Without noise, FSI = exact linear combo of features → R²=1.0,
-#    RMSE=0.0 (trivial, not ML). The ±1.5% noise added in
-#    generate_dataset() simulates real data collection error,
-#    giving R²≈0.989, RMSE≈0.015 — an excellent real-world model.
-#    RMSE of ~0.015 = only 2% of the FSI range (0-1), which is
-#    outstanding predictive accuracy.
-#
-# 3. DISTRICT DISTRIBUTION (33/33/34 split):
-#    Percentile-based labelling (p33/p66) guarantees exactly 10
-#    districts per class regardless of FSI spread. This is NOT
-#    a problem — it ensures balanced class representation and
-#    prevents the majority-class bias that fixed thresholds cause.
-#    KMeans independently confirms these groupings, validating
-#    that the 10-10-10 split reflects true natural clusters.
-#
-# 4. MAE + RMSE% added for complete error interpretation.
 # ─────────────────────────────────────────────────────────
 @st.cache_data
 def run_regression(df: pd.DataFrame):
     """
     Train Linear Regression to predict FSI from farm parameters.
 
-    Features are StandardScaler-normalised before fitting so that
-    regression coefficients reflect true relative importance of each
-    parameter, making the model interpretable for agronomists.
-
-    The target FSI includes realistic ±1.5% measurement noise
-    (added in generate_dataset) making this a genuine prediction
-    task with meaningful RMSE ~ 0.015 (just 2% of FSI range).
-
-    Returns dict with: model, reg_scaler, r2, rmse, mae, rmse_pct,
-                       fsi_range, coef_df, y_test, y_pred, feature_names
+    Returns dict with: model, r2, rmse, coef_df,
+                       y_test, y_pred, feature_names
     """
     features = ["Rainfall", "Price", "Yield", "Cost", "Irrigation"]
     X = df[features].values
@@ -863,22 +776,12 @@ def run_regression(df: pd.DataFrame):
         X, y, test_size=0.2, random_state=42
     )
 
-    # Scale features for comparable, interpretable coefficients
-    reg_scaler = StandardScaler()
-    X_train_sc = reg_scaler.fit_transform(X_train)
-    X_test_sc  = reg_scaler.transform(X_test)
-
     model = LinearRegression()
-    model.fit(X_train_sc, y_train)
+    model.fit(X_train, y_train)
 
-    y_pred   = model.predict(X_test_sc)
-    r2       = r2_score(y_test, y_pred)
-    rmse     = np.sqrt(mean_squared_error(y_test, y_pred))
-    mae      = mean_absolute_error(y_test, y_pred)
-
-    # RMSE as % of FSI range — contextualises the error magnitude
-    fsi_range = float(y.max() - y.min())
-    rmse_pct  = (rmse / fsi_range) * 100 if fsi_range > 0 else 0.0
+    y_pred = model.predict(X_test)
+    r2     = r2_score(y_test, y_pred)
+    rmse   = np.sqrt(mean_squared_error(y_test, y_pred))
 
     coef_df = pd.DataFrame({
         "Feature":     features,
@@ -887,9 +790,7 @@ def run_regression(df: pd.DataFrame):
     }).sort_values("Abs_Coef", ascending=False)
 
     return {
-        "model": model, "reg_scaler": reg_scaler,
-        "r2": r2, "rmse": rmse, "mae": mae,
-        "rmse_pct": rmse_pct, "fsi_range": fsi_range,
+        "model": model, "r2": r2, "rmse": rmse,
         "coef_df": coef_df, "y_test": y_test,
         "y_pred": y_pred, "feature_names": features,
     }
@@ -952,7 +853,7 @@ def build_map(hex_df: pd.DataFrame, zoom: int = 6) -> go.Figure:
 
 def compute_game_fsi(rain: int, price: int, yld: int,
                      cost: int, irrig: int) -> float:
-    """Convert 0-100 slider values to FSI using standard formula."""
+    """Convert 0–100 slider values to FSI using standard formula."""
     r, p, y, c, i = rain/100, price/100, yld/100, cost/100, irrig/100
     return (1-r)*0.25 + (1-p)*0.25 + (1-y)*0.20 + c*0.20 + (1-i)*0.10
 
@@ -1281,6 +1182,7 @@ with tab2:
 
     with gc1:
         st.markdown("**⚙️ ENVIRONMENT CONTROLS**")
+        # Sliders read from session state — presets already applied above
         rain  = st.slider("🌧 Rainfall Level",    0, 100, 50, key="g_rain")
         price = st.slider("💰 Crop Market Price", 0, 100, 50, key="g_price")
         yld   = st.slider("🌿 Crop Yield",        0, 100, 50, key="g_yield")
@@ -1303,8 +1205,10 @@ with tab2:
             if st.button("🏆\nIdeal"):
                 st.session_state.preset = "ideal"; st.rerun()
 
+    # Compute FSI from current slider values
     g_fsi = round(compute_game_fsi(rain, price, yld, cost, irrig), 4)
 
+    # Award XP
     if g_fsi < 0.30:
         st.session_state.score = min(9999, st.session_state.score + (15 if g_fsi < 0.15 else 5))
         st.session_state.xp    = min(100,  st.session_state.xp + 3)
@@ -1522,8 +1426,7 @@ with tab3:
     st.markdown("### 🤖 ML MODULE A — KMeans UNSUPERVISED CLUSTERING")
     st.markdown(
         "<small>Scikit-learn KMeans groups districts by farm parameter similarity "
-        "without using predefined labels. Features are StandardScaler-normalised before clustering. "
-        "n_init=20, max_iter=500, init=k-means++ ensures stable optimal clustering.</small>",
+        "without using predefined labels. Features are StandardScaler-normalised before clustering.</small>",
         unsafe_allow_html=True
     )
 
@@ -1531,4 +1434,83 @@ with tab3:
     with mla1:
         ml_counts  = ml_df["ML_Stress"].value_counts().reindex(["HIGH","MEDIUM","LOW"]).fillna(0)
         fig_ml_bar = go.Figure(go.Bar(
-            x=ml_counts.ind
+            x=ml_counts.index, y=ml_counts.values,
+            marker_color=["#ff2244","#ffea00","#39ff14"],
+            text=ml_counts.values.astype(int), textposition="outside",
+            textfont=dict(color="#00ff88", family="Share Tech Mono"),
+        ))
+        fig_ml_bar.update_layout(
+            title=dict(text="🤖 KMeans Cluster Distribution", font=dict(color="#39ff14",family="Orbitron",size=13)),
+            xaxis=dict(tickfont=dict(color="#00ff88",family="Share Tech Mono")),
+            yaxis=dict(tickfont=dict(color="#00ff88",family="Share Tech Mono"),gridcolor="rgba(0,255,136,0.08)"),
+            paper_bgcolor="rgba(0,13,2,0.0)", plot_bgcolor="rgba(0,13,2,0.6)",
+            font=dict(color="#00ff88"), height=300, margin=dict(t=40,b=20,l=30,r=20), showlegend=False
+        )
+        st.plotly_chart(fig_ml_bar, use_container_width=True)
+
+    with mla2:
+        cl_colors   = {"HIGH":"#ff2244","MEDIUM":"#ffea00","LOW":"#39ff14"}
+        fig_scatter = go.Figure()
+        for cl in ["HIGH","MEDIUM","LOW"]:
+            sub = ml_df[ml_df["ML_Stress"] == cl]
+            fig_scatter.add_trace(go.Scatter(
+                x=sub["Rainfall"], y=sub["FSI"],
+                mode="markers+text",
+                marker=dict(size=10, color=cl_colors[cl], opacity=0.85,
+                            line=dict(color="rgba(0,255,136,0.3)",width=1)),
+                text=sub["Region"], textposition="top center",
+                textfont=dict(size=7, color=cl_colors[cl]),
+                name=f"Cluster: {cl}",
+            ))
+        fig_scatter.update_layout(
+            title=dict(text="FSI vs Rainfall — ML Clusters", font=dict(color="#39ff14",family="Orbitron",size=13)),
+            xaxis=dict(title="Rainfall",tickfont=dict(color="#00ff88"),gridcolor="rgba(0,255,136,0.08)"),
+            yaxis=dict(title="FSI",tickfont=dict(color="#00ff88"),gridcolor="rgba(0,255,136,0.08)"),
+            paper_bgcolor="rgba(0,13,2,0.0)", plot_bgcolor="rgba(0,13,2,0.6)",
+            font=dict(color="#00ff88"), height=300, margin=dict(t=40,b=20,l=40,r=20),
+            legend=dict(font=dict(color="#00ff88"),bgcolor="rgba(0,13,2,0.8)")
+        )
+        st.plotly_chart(fig_scatter, use_container_width=True)
+
+    agree_count = (ml_df["Stress"] == ml_df["ML_Stress"]).sum()
+    agree_pct   = agree_count / len(ml_df) * 100
+    st.markdown(f"""
+    <div class='game-card' style='text-align:center;padding:14px;margin-bottom:12px'>
+        <span style='font-family:Orbitron,monospace;font-size:1.8rem;font-weight:900;
+        color:#39ff14;text-shadow:0 0 15px rgba(57,255,20,0.6)'>{agree_pct:.0f}%</span>
+        <div style='color:rgba(0,255,136,0.5);font-size:0.8rem;margin-top:4px'>
+        Agreement between rule-based FSI labels and KMeans ML clusters
+        ({agree_count} of {len(ml_df)} districts match)</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    for _, row in ml_df[["Region","Stress","ML_Stress","FSI"]].sort_values("FSI",ascending=False).iterrows():
+        match      = row["Stress"] == row["ML_Stress"]
+        match_icon = "✅" if match else "⚠️"
+        color      = "#39ff14" if match else "#ffea00"
+        lbl_colors = {"HIGH":"#ff2244","MEDIUM":"#ffea00","LOW":"#39ff14"}
+        st.markdown(f"""
+        <div style='display:flex;align-items:center;gap:12px;padding:5px 12px;
+             margin-bottom:2px;border:1px solid {color}22;border-radius:4px;background:rgba(0,20,5,0.5)'>
+            <span style='flex:1;font-size:0.85rem;font-weight:700'>{row['Region']}</span>
+            <span style='font-size:0.75rem;color:rgba(0,255,136,0.5)'>FSI {row['FSI']:.3f}</span>
+            <span style='font-size:0.75rem;color:#aaa'>Rule: <b style='color:{lbl_colors[row["Stress"]]}'>{row['Stress']}</b></span>
+            <span style='font-size:0.75rem;color:#aaa'>ML: <b style='color:{lbl_colors[row["ML_Stress"]]}'>{row['ML_Stress']}</b></span>
+            <span style='font-size:0.85rem'>{match_icon}</span>
+        </div>""", unsafe_allow_html=True)
+
+    st.divider()
+
+    # ── ML SECTION B: Linear Regression ─────────────────
+    st.markdown("### 📈 ML MODULE B — LINEAR REGRESSION (FSI PREDICTION)")
+    st.markdown(
+        "<small>Supervised learning: predicts FSI from farm parameters. "
+        "Trained on 80% data, evaluated on 20% held-out test set. "
+        "Feature coefficients reveal which parameters most drive stress.</small>",
+        unsafe_allow_html=True
+    )
+
+    r = regression_results
+    mlb1, mlb2, mlb3 = st.columns(3)
+    mlb1.metric("📐 R² Score",  f"{r['r2']:.4f}",  help="1.0 = perfect prediction")
+    mlb2.metric("📉
