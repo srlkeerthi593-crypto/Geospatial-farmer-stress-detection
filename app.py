@@ -22,7 +22,7 @@
 #
 # AUTHOR  : [Your Name]
 # DATE    : 2026
-# VERSION : 3.1 (Final — Regression Fix)
+# VERSION : 3.0 (Final)
 # =========================================================
 
 # ── Standard library ──────────────────────────────────────
@@ -496,6 +496,8 @@ DISTRICT_COORDS = {
 
 # ─────────────────────────────────────────────────────────
 # SYNTHETIC DATASET CONFIGURATION
+# Each district has a hand-crafted baseline profile derived
+# from real Karnataka agricultural knowledge.
 # ─────────────────────────────────────────────────────────
 random.seed(42)
 np.random.seed(42)
@@ -755,105 +757,42 @@ def run_kmeans_clustering(agg_df: pd.DataFrame):
 
 # ─────────────────────────────────────────────────────────
 # ML MODULE 2 — LINEAR REGRESSION (FSI PREDICTION)
-#
-# FIX SUMMARY (v3.1):
-#   PROBLEM: Original code trained regression on 750 noisy
-#   farm-level records. Because FSI is a deterministic
-#   formula applied to raw noisy inputs, individual records
-#   carry σ≈0.12 Gaussian noise — producing high RMSE (~0.04)
-#   and a depressed R² even though the relationship is linear.
-#
-#   ROOT CAUSE: Noise is intentional in the dataset to simulate
-#   real farm variation, but individual records are NOT the
-#   unit of prediction. The meaningful unit is the district.
-#
-#   FIX APPLIED:
-#     1. Aggregate 750 farm rows → 30 district-mean rows FIRST,
-#        then compute FSI on the aggregates (noise cancels out
-#        by the Law of Large Numbers, ~25 samples per district).
-#     2. Apply StandardScaler to features before fitting
-#        LinearRegression (same pipeline as KMeans).
-#     3. Use leave-one-out-style cross-validation (cv=5, but
-#        with shuffle) since n=30 is small — avoids accidentally
-#        perfect splits with only 6 test samples.
-#     4. Report both CV-mean metrics AND held-out test metrics.
-#
-#   RESULT: R² ≥ 0.999, RMSE ≤ 0.001 — correct, because FSI
-#   IS a perfect linear combination of the 5 features.
-#   The model correctly recovers the exact formula weights.
+# Predicts FSI from 5 farm parameters. 80/20 train-test
+# split. Coefficients reveal parameter importance.
 # ─────────────────────────────────────────────────────────
 @st.cache_data
 def run_regression(df: pd.DataFrame):
     """
     Train Linear Regression to predict FSI from farm parameters.
 
-    v3.1 FIX: Operates on district-level aggregates (30 rows),
-    not raw farm records (750 rows). Noise cancellation via
-    averaging gives near-perfect R² and minimal RMSE, which
-    is correct because FSI is a deterministic linear formula.
-
-    Features are StandardScaler-normalised before fitting to
-    align with best practices (same as KMeans pipeline).
-
-    Returns dict with: model, scaler, r2, rmse, coef_df,
-                       y_test, y_pred, feature_names,
-                       data_note
+    Returns dict with: model, r2, rmse, coef_df,
+                       y_test, y_pred, feature_names
     """
     features = ["Rainfall", "Price", "Yield", "Cost", "Irrigation"]
+    X = df[features].values
+    y = df["FSI"].values
 
-    # ── Step 1: Aggregate to district level (noise cancels out) ──
-    district_agg = df.groupby("Region", as_index=False).agg(
-        Rainfall=("Rainfall",    "mean"),
-        Price=("Price",          "mean"),
-        Yield=("Yield",          "mean"),
-        Cost=("Cost",            "mean"),
-        Irrigation=("Irrigation","mean"),
-    )
-    # Compute FSI on district means — this is the true district FSI
-    district_agg = compute_fsi(district_agg)
-
-    X = district_agg[features].values
-    y = district_agg["FSI"].values
-
-    # ── Step 2: Scale features (StandardScaler) ──────────────────
-    scaler   = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
-
-    # ── Step 3: Train/test split (80/20 on 30 districts = 24/6) ──
     X_train, X_test, y_train, y_test = train_test_split(
-        X_scaled, y, test_size=0.20, random_state=42
+        X, y, test_size=0.2, random_state=42
     )
 
-    # ── Step 4: Fit model ─────────────────────────────────────────
     model = LinearRegression()
     model.fit(X_train, y_train)
 
-    # ── Step 5: Evaluate ──────────────────────────────────────────
     y_pred = model.predict(X_test)
     r2     = r2_score(y_test, y_pred)
     rmse   = np.sqrt(mean_squared_error(y_test, y_pred))
 
-    # ── Step 6: Coefficient table (unscale for interpretability) ──
-    # Recover approximate original-space coefficients for display
-    coef_original = model.coef_ / scaler.scale_
     coef_df = pd.DataFrame({
         "Feature":     features,
-        "Coefficient": coef_original,
-        "Abs_Coef":    np.abs(coef_original)
+        "Coefficient": model.coef_,
+        "Abs_Coef":    np.abs(model.coef_)
     }).sort_values("Abs_Coef", ascending=False)
 
-    data_note = (
-        "⚙️ Trained on 30 district-mean rows (aggregated from 750 farm records). "
-        "Noise cancellation via averaging reveals the true linear FSI signal."
-    )
-
     return {
-        "model": model, "scaler": scaler,
-        "r2": r2, "rmse": rmse,
-        "coef_df": coef_df,
-        "y_test": y_test, "y_pred": y_pred,
-        "feature_names": features,
-        "data_note": data_note,
+        "model": model, "r2": r2, "rmse": rmse,
+        "coef_df": coef_df, "y_test": y_test,
+        "y_pred": y_pred, "feature_names": features,
     }
 
 
@@ -1243,6 +1182,7 @@ with tab2:
 
     with gc1:
         st.markdown("**⚙️ ENVIRONMENT CONTROLS**")
+        # Sliders read from session state — presets already applied above
         rain  = st.slider("🌧 Rainfall Level",    0, 100, 50, key="g_rain")
         price = st.slider("💰 Crop Market Price", 0, 100, 50, key="g_price")
         yld   = st.slider("🌿 Crop Yield",        0, 100, 50, key="g_yield")
@@ -1564,165 +1504,13 @@ with tab3:
     # ── ML SECTION B: Linear Regression ─────────────────
     st.markdown("### 📈 ML MODULE B — LINEAR REGRESSION (FSI PREDICTION)")
     st.markdown(
-        "<small>Supervised learning: predicts FSI from district-averaged farm parameters (30 districts). "
-        "Features are StandardScaler-normalised. Trained on 80% (24 districts), tested on 20% (6 districts). "
-        "Near-perfect R² is expected — FSI is a deterministic linear combination of the 5 inputs.</small>",
+        "<small>Supervised learning: predicts FSI from farm parameters. "
+        "Trained on 80% data, evaluated on 20% held-out test set. "
+        "Feature coefficients reveal which parameters most drive stress.</small>",
         unsafe_allow_html=True
     )
 
-    # Show the data note about the fix
     r = regression_results
-    st.markdown(f"""
-    <div style='background:rgba(0,255,136,0.05);border:1px solid rgba(0,255,136,0.2);
-         border-left:3px solid #39ff14;border-radius:6px;padding:10px 14px;
-         font-family:Share Tech Mono,monospace;font-size:0.72rem;
-         color:rgba(0,255,136,0.6);margin-bottom:12px'>
-        {r['data_note']}
-    </div>
-    """, unsafe_allow_html=True)
-
     mlb1, mlb2, mlb3 = st.columns(3)
-    mlb1.metric("📐 R² Score",  f"{r['r2']:.4f}",  help="1.0 = perfect prediction. Near-1.0 is correct: FSI is a linear formula.")
-    mlb2.metric("📉 RMSE",      f"{r['rmse']:.6f}", help="Root Mean Squared Error on 6 held-out districts. Low value confirms near-perfect fit.")
-    mlb3.metric("📊 Train Size","24 districts",     help="80% of 30 district aggregates used for training.")
-
-    # Scatter: Actual vs Predicted FSI
-    fig_reg = go.Figure()
-    fig_reg.add_trace(go.Scatter(
-        x=r["y_test"], y=r["y_pred"],
-        mode="markers",
-        marker=dict(size=12, color="#39ff14", opacity=0.85,
-                    line=dict(color="rgba(0,255,136,0.5)", width=1)),
-        name="Test Districts",
-    ))
-    # Perfect prediction line
-    mn = min(r["y_test"].min(), r["y_pred"].min()) - 0.01
-    mx = max(r["y_test"].max(), r["y_pred"].max()) + 0.01
-    fig_reg.add_trace(go.Scatter(
-        x=[mn, mx], y=[mn, mx],
-        mode="lines",
-        line=dict(color="#ff2244", dash="dash", width=1.5),
-        name="Perfect Fit",
-    ))
-    fig_reg.update_layout(
-        title=dict(text="Actual vs Predicted FSI (Test Set — District Means)",
-                   font=dict(color="#39ff14", family="Orbitron", size=13)),
-        xaxis=dict(title="Actual FSI", tickfont=dict(color="#00ff88"),
-                   gridcolor="rgba(0,255,136,0.08)"),
-        yaxis=dict(title="Predicted FSI", tickfont=dict(color="#00ff88"),
-                   gridcolor="rgba(0,255,136,0.08)"),
-        paper_bgcolor="rgba(0,13,2,0.0)", plot_bgcolor="rgba(0,13,2,0.6)",
-        font=dict(color="#00ff88"), height=320,
-        margin=dict(t=40, b=30, l=50, r=20),
-        legend=dict(font=dict(color="#00ff88"), bgcolor="rgba(0,13,2,0.8)")
-    )
-    st.plotly_chart(fig_reg, use_container_width=True)
-
-    # Coefficient bar chart
-    coef_df = r["coef_df"]
-    coef_colors = ["#39ff14" if c < 0 else "#ff2244" for c in coef_df["Coefficient"]]
-    fig_coef = go.Figure(go.Bar(
-        x=coef_df["Feature"],
-        y=coef_df["Coefficient"],
-        marker_color=coef_colors,
-        text=[f"{v:+.4f}" for v in coef_df["Coefficient"]],
-        textposition="outside",
-        textfont=dict(color="#00ff88", family="Share Tech Mono"),
-    ))
-    fig_coef.update_layout(
-        title=dict(text="Feature Coefficients — Formula Weights Recovered by Model",
-                   font=dict(color="#39ff14", family="Orbitron", size=13)),
-        xaxis=dict(tickfont=dict(color="#00ff88", family="Share Tech Mono")),
-        yaxis=dict(tickfont=dict(color="#00ff88", family="Share Tech Mono"),
-                   gridcolor="rgba(0,255,136,0.08)", zeroline=True,
-                   zerolinecolor="rgba(0,255,136,0.3)"),
-        paper_bgcolor="rgba(0,13,2,0.0)", plot_bgcolor="rgba(0,13,2,0.6)",
-        font=dict(color="#00ff88"), height=300,
-        margin=dict(t=40, b=20, l=50, r=20), showlegend=False
-    )
-    st.plotly_chart(fig_coef, use_container_width=True)
-
-    # Coefficient interpretation table
-    st.markdown("""
-    <div style='background:rgba(0,20,5,0.7);border:1px solid rgba(0,255,136,0.2);
-         border-radius:8px;padding:14px;font-family:Share Tech Mono,monospace;font-size:0.72rem;
-         color:rgba(0,255,136,0.7)'>
-    <b style='color:#39ff14;font-size:0.8rem'>🔬 COEFFICIENT INTERPRETATION</b><br><br>
-    🟢 <b>GREEN bars (negative)</b> = Rainfall, Price, Yield, Irrigation — higher values REDUCE stress (FSI goes down)<br>
-    🔴 <b>RED bars (positive)</b> = Cost — higher cost INCREASES stress (FSI goes up)<br><br>
-    The model correctly recovers the FSI formula weights after de-scaling:<br>
-    Rainfall ≈ −0.25 | Price ≈ −0.25 | Yield ≈ −0.20 | Cost ≈ +0.20 | Irrigation ≈ −0.10
-    </div>
-    """, unsafe_allow_html=True)
-
-# ════════════════════════════════════════════════════════
-# TAB 4 — ALERT SYSTEM
-# ════════════════════════════════════════════════════════
-with tab4:
-    st.markdown("### 🚨 DISTRICT ALERT SYSTEM")
-
-    high_districts = hex_df[hex_df["Stress"] == "HIGH"].sort_values("FSI", ascending=False)
-    med_districts  = hex_df[hex_df["Stress"] == "MEDIUM"].sort_values("FSI", ascending=False)
-
-    if len(high_districts) > 0:
-        st.error(f"🔴 {len(high_districts)} DISTRICTS IN HIGH STRESS — IMMEDIATE ACTION REQUIRED")
-        for _, row in high_districts.iterrows():
-            st.markdown(f"""
-            <div style='background:rgba(255,34,68,0.07);border:1px solid rgba(255,34,68,0.4);
-                 border-left:4px solid #ff2244;border-radius:6px;padding:12px 16px;margin-bottom:8px'>
-                <div style='display:flex;justify-content:space-between;align-items:center'>
-                    <span style='font-family:Orbitron,monospace;font-weight:700;font-size:1rem;color:#ff2244'>
-                        🔴 {row['Region']}</span>
-                    <span style='font-family:Share Tech Mono,monospace;color:#ff2244;font-size:1.1rem'>
-                        FSI: {row['FSI']:.4f}</span>
-                </div>
-                <div style='color:rgba(255,136,136,0.7);font-size:0.82rem;margin-top:6px'>
-                    ⚠️ Root Cause: {row['Reason']}</div>
-                <div style='display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:8px;
-                     font-family:Share Tech Mono,monospace;font-size:0.72rem;text-align:center'>
-                    <div>🌧 Rain<br><b>{row['Rainfall']:.2f}</b></div>
-                    <div>💰 Price<br><b>{row['Price']:.2f}</b></div>
-                    <div>🌿 Yield<br><b>{row['Yield']:.2f}</b></div>
-                    <div>📦 Cost<br><b>{row['Cost']:.2f}</b></div>
-                    <div>💧 Irrig<br><b>{row['Irrigation']:.2f}</b></div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-    else:
-        st.success("✅ No districts in HIGH stress zone currently!")
-
-    if len(med_districts) > 0:
-        st.warning(f"🟡 {len(med_districts)} DISTRICTS IN MEDIUM STRESS — MONITORING ADVISED")
-        for _, row in med_districts.iterrows():
-            st.markdown(f"""
-            <div style='background:rgba(255,234,0,0.04);border:1px solid rgba(255,234,0,0.3);
-                 border-left:4px solid #ffea00;border-radius:6px;padding:10px 16px;margin-bottom:6px'>
-                <div style='display:flex;justify-content:space-between'>
-                    <span style='font-family:Orbitron,monospace;font-weight:700;color:#ffea00'>
-                        🟡 {row['Region']}</span>
-                    <span style='font-family:Share Tech Mono,monospace;color:#ffea00'>
-                        FSI: {row['FSI']:.4f}</span>
-                </div>
-                <div style='color:rgba(255,234,0,0.6);font-size:0.8rem;margin-top:4px'>
-                    ⚠️ {row['Reason']}</div>
-            </div>
-            """, unsafe_allow_html=True)
-
-    st.divider()
-    st.markdown("### 🌾 CROP-WISE STRESS ANALYSIS")
-    crop_stress = df_filtered.groupby(["Crop","Region"])["FSI"].mean().reset_index()
-    crop_worst  = crop_stress.loc[crop_stress.groupby("Crop")["FSI"].idxmax()]
-    crop_worst  = crop_worst.sort_values("FSI", ascending=False)
-
-    for _, row in crop_worst.iterrows():
-        fsi_c = "#ff2244" if row["FSI"]>0.55 else "#ffea00" if row["FSI"]>0.40 else "#39ff14"
-        st.markdown(f"""
-        <div style='display:flex;align-items:center;gap:12px;padding:6px 12px;
-             margin-bottom:3px;border:1px solid {fsi_c}22;border-radius:4px;
-             background:rgba(0,20,5,0.5)'>
-            <span style='font-size:0.88rem;font-weight:700;flex:1'>🌾 {row['Crop']}</span>
-            <span style='font-size:0.78rem;color:rgba(0,255,136,0.5)'>
-                Most stressed in: {row['Region']}</span>
-            <span style='font-family:Share Tech Mono,monospace;font-size:0.82rem;color:{fsi_c}'>
-                FSI {row['FSI']:.3f}</span>
-        </div>""", unsafe_allow_html=True)
+    mlb1.metric("📐 R² Score",  f"{r['r2']:.4f}",  help="1.0 = perfect prediction")
+    mlb2.metric("📉
