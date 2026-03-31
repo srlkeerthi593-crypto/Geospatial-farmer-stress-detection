@@ -665,11 +665,20 @@ def compute_fsi(df: pd.DataFrame) -> pd.DataFrame:
 
 def add_stress_labels(df: pd.DataFrame):
     """
-    Classify districts as HIGH / MEDIUM / LOW using
-    percentile-based thresholds (33rd and 66th percentile).
+    Classify districts as HIGH / MEDIUM / LOW using real
+    fixed FSI thresholds — NOT percentile-based.
+
+    FSI range is 0 (no stress) to 1 (maximum stress).
+    Thresholds derived from agronomic meaning:
+      FSI >= 0.50 -> HIGH   (farm is genuinely struggling)
+      FSI >= 0.40 -> MEDIUM (farm needs monitoring)
+      FSI <  0.40 -> LOW    (farm is doing well)
+
+    Districts classified purely by actual FSI value.
+    No forced equal distribution — unbiased classification.
     """
-    p33 = df["FSI"].quantile(0.33)
-    p66 = df["FSI"].quantile(0.66)
+    p33 = 0.40   # LOW/MEDIUM boundary
+    p66 = 0.50   # MEDIUM/HIGH boundary
 
     def classify(x):
         if x >= p66:   return "HIGH"
