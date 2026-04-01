@@ -663,8 +663,7 @@ HIGH   : above 66th percentile
     tuple : (DataFrame with 'Stress' column, low_thresh, high_thresh)
     """
     LOW_THRESH  = df["FSI"].quantile(0.33)
-HIGH_THRESH = df["FSI"].quantile(0.66)
-
+    HIGH_THRESH = df["FSI"].quantile(0.66)
     def classify(x):
         if x >= HIGH_THRESH:  return "HIGH"
         elif x >= LOW_THRESH: return "MEDIUM"
