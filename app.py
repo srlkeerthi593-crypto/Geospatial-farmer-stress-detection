@@ -712,14 +712,8 @@ def add_stress_labels(df: pd.DataFrame):
     -------
     tuple : (DataFrame with 'Stress' column, p33 float, p66 float)
     """
-    # Fixed thresholds based on FSI range [0, 1]:
-    #   FSI >= 0.55 → HIGH stress   (drought/low price/high cost conditions)
-    #   FSI >= 0.40 → MEDIUM stress (some risk, needs monitoring)
-    #   FSI <  0.40 → LOW stress    (relatively good conditions)
-    # Using fixed thresholds means counts vary naturally with actual data
-    # rather than always producing exactly 10/10/10 via percentile splitting.
-    p33 = 0.40
-    p66 = 0.55
+    p33 = df["FSI"].quantile(0.33)
+    p66 = df["FSI"].quantile(0.66)
 
     def classify(x):
         if x >= p66:   return "HIGH"
@@ -911,17 +905,7 @@ def run_regression(df: pd.DataFrame):
     """
     features = ["Rainfall", "Price", "Yield", "Cost", "Irrigation"]
     X = df[features].values
-
-    # Recompute FSI directly from the exact weighted formula using raw features.
-    # This ensures the target (y) is a perfect linear combination of X,
-    # so LinearRegression recovers the exact coefficients → R²=1.0000, RMSE≈0.0000.
-    # Using df["FSI"] (which may carry floating-point rounding from prior steps)
-    # can produce tiny residuals and a slightly imperfect R².
-    y = ((1 - df["Rainfall"].values)  * 0.25 +
-         (1 - df["Price"].values)     * 0.25 +
-         (1 - df["Yield"].values)     * 0.20 +
-         df["Cost"].values            * 0.20 +
-         (1 - df["Irrigation"].values)* 0.10)
+    y = df["FSI"].values
 
     # 80/20 train-test split, stratification not needed for regression
     X_train, X_test, y_train, y_test = train_test_split(
