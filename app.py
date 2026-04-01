@@ -647,10 +647,10 @@ def add_stress_labels(df: pd.DataFrame):
     stress levels. This is statistically biased — a year with
     only mild stress would still produce 10 'HIGH' districts.
 
-    Fixed thresholds (absolute values on 0–1 scale):
-      FSI >= 0.55  → HIGH   (severe drought / cost / price)
-      FSI  0.42–0.55 → MEDIUM (moderate, needs monitoring)
-      FSI <  0.42  → LOW    (healthy farm conditions)
+    Dynamic thresholds based on dataset distribution:
+LOW    : below 33rd percentile
+MEDIUM : 33rd–66th percentile
+HIGH   : above 66th percentile
 
     These thresholds produce unequal, data-driven class sizes
     that reflect genuine conditions. With the Karnataka baseline
@@ -662,8 +662,8 @@ def add_stress_labels(df: pd.DataFrame):
     -------
     tuple : (DataFrame with 'Stress' column, low_thresh, high_thresh)
     """
-    LOW_THRESH  = 0.42
-    HIGH_THRESH = 0.55
+    LOW_THRESH  = df["FSI"].quantile(0.33)
+HIGH_THRESH = df["FSI"].quantile(0.66)
 
     def classify(x):
         if x >= HIGH_THRESH:  return "HIGH"
